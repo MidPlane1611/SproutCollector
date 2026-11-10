@@ -1,12 +1,13 @@
-
 --==================================================
 -- SPR0UT COLLECTOR
 -- GitHub-compatible client script
+-- with persistent config saving
 --==================================================
 
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local UserInputService = game:GetService("UserInputService")
+local HttpService = game:GetService("HttpService")
 
 local Player = Players.LocalPlayer
 local PlayerGui = Player:WaitForChild("PlayerGui")
@@ -36,6 +37,16 @@ local oldGui = PlayerGui:FindFirstChild("SproutCollectorGUI")
 if oldGui then
     oldGui:Destroy()
 end
+
+--==================================================
+-- PERSISTENCE (forward declarations)
+--==================================================
+
+local SAVE_FOLDER = "SproutCollector"
+local SAVE_FILE = SAVE_FOLDER .. "/config.json"
+
+local saveConfig
+local loadedData
 
 --==================================================
 -- GUI HELPERS
@@ -99,8 +110,6 @@ local Header = create("Frame", {
 }, Main)
 
 round(Header, 12)
-
--- Cover lower rounded corners
 
 local HeaderCover = create("Frame", {
     Size = UDim2.new(1, 0, 0, 12),
@@ -284,6 +293,7 @@ Header.InputBegan:Connect(function(input)
 
             if input.UserInputState == Enum.UserInputState.End then
                 dragging = false
+                saveConfig()
             end
 
         end)
@@ -340,6 +350,8 @@ Minimize.MouseButton1Click:Connect(function()
         Minimize.Text = "−"
     end
 
+    saveConfig()
+
 end)
 
 --==================================================
@@ -359,6 +371,67 @@ local function normalizeID(id)
 
     return id
 
+end
+
+--==================================================
+-- LOAD SAVED DATA
+--==================================================
+
+if type(isfile) == "function" and type(readfile) == "function" then
+    if isfile(SAVE_FILE) then
+        local ok, content = pcall(readfile, SAVE_FILE)
+        if ok and type(content) == "string" and content ~= "" then
+            local ok2, data = pcall(function()
+                return HttpService:JSONDecode(content)
+            end)
+            if ok2 and type(data) == "table" then
+                loadedData = data
+            end
+        end
+    end
+end
+
+if loadedData and type(loadedData.ids) == "table" then
+    for _, rawID in ipairs(loadedData.ids) do
+        local id = normalizeID(rawID)
+        if id ~= "0" and not SavedIDs[id] then
+            SavedIDs[id] = true
+            table.insert(IDOrder, id)
+        end
+    end
+end
+
+saveConfig = function()
+    if type(writefile) ~= "function" then
+        return
+    end
+
+    if type(makefolder) == "function" and type(isfolder) == "function" then
+        pcall(function()
+            if not isfolder(SAVE_FOLDER) then
+                makefolder(SAVE_FOLDER)
+            end
+        end)
+    end
+
+    local data = {
+        ids = IDOrder,
+        guiPosition = {
+            xScale  = Main.Position.X.Scale,
+            xOffset = Main.Position.X.Offset,
+            yScale  = Main.Position.Y.Scale,
+            yOffset = Main.Position.Y.Offset
+        },
+        minimized = minimized
+    }
+
+    local ok, encoded = pcall(function()
+        return HttpService:JSONEncode(data)
+    end)
+
+    if ok then
+        pcall(writefile, SAVE_FILE, encoded)
+    end
 end
 
 local function updateCounter()
@@ -425,6 +498,7 @@ local function refreshList()
             end
 
             refreshList()
+            saveConfig()
 
         end)
 
@@ -469,6 +543,7 @@ Add.MouseButton1Click:Connect(function()
     Input.Text = ""
 
     refreshList()
+    saveConfig()
 
     Footer.Text = "ID added successfully."
 
@@ -504,9 +579,6 @@ local function getBounds(object)
     else
         return nil
     end
-
-    -- Project bounds onto XZ.
-    -- Height Y is ignored.
 
     local xExtent =
         math.abs(cf.RightVector.X) * size.X / 2 +
@@ -602,8 +674,6 @@ local function getColorMapID(object)
         return nil
     end
 
-    -- ColorMap is a property, not a child.
-
     local success, colorMap = pcall(function()
         return tostring(backDecal.ColorMap)
     end)
@@ -611,8 +681,6 @@ local function getColorMapID(object)
     if not success then
         return nil
     end
-
-    -- Extract the numeric part.
 
     local id = colorMap:match("%d+")
 
@@ -657,8 +725,6 @@ local function teleportTo(root, object)
     if not target then
         return false
     end
-
-    -- Exact object position.
 
     root.CFrame = target
 
@@ -722,16 +788,11 @@ local function scanPass(token)
         return
     end
 
-    -- Get permitted FlowerZones.
-
     local zones = getFlowerZones()
 
     if not isRunning(token) then
         return
     end
-
-    -- Save position immediately before
-    -- checking Workspace.Collectibles.
 
     local cycle = {
         root = root,
@@ -749,8 +810,6 @@ local function scanPass(token)
     if collectiblesFolder then
         objects = collectiblesFolder:GetChildren()
     end
-
-    -- Find matching Sprouts.
 
     local targets = {}
 
@@ -777,8 +836,6 @@ local function scanPass(token)
     end
 
     Footer.Text = "Found " .. tostring(#targets) .. " matching Sprouts."
-
-    -- Visit each matching object.
 
     for index, object in ipairs(targets) do
 
@@ -807,8 +864,6 @@ local function scanPass(token)
         end
 
     end
-
-    -- Return to the position saved before this scan.
 
     restorePosition(cycle)
 
@@ -888,8 +943,6 @@ Status.MouseButton1Click:Connect(function()
 
     else
 
-        -- Stop immediately and restore position.
-
         restorePosition(ActiveCycle)
 
         Footer.Text = "Collector stopped."
@@ -899,12 +952,41 @@ Status.MouseButton1Click:Connect(function()
 end)
 
 --==================================================
+-- RESTORE GUI STATE
+--==================================================
+
+if loadedData then
+
+    if type(loadedData.guiPosition) == "table" then
+        local p = loadedData.guiPosition
+        if type(p.xScale) == "number"
+            and type(p.xOffset) == "number"
+            and type(p.yScale) == "number"
+            and type(p.yOffset) == "number" then
+            Main.Position = UDim2.new(p.xScale, p.xOffset, p.yScale, p.yOffset)
+        end
+    end
+
+    if loadedData.minimized == true then
+        minimized = true
+        Content.Visible = false
+        Main.Size = UDim2.fromOffset(320, 45)
+        Minimize.Text = "+"
+    end
+
+end
+
+--==================================================
 -- INITIALIZE
 --==================================================
 
 updateStatus()
 refreshList()
 
-Footer.Text = "Ready. Add Sprout IDs to begin."
+if #IDOrder > 0 then
+    Footer.Text = "Loaded " .. tostring(#IDOrder) .. " saved ID(s)."
+else
+    Footer.Text = "Ready. Add Sprout IDs to begin."
+end
 
 print("[Sprout Collector] GUI loaded successfully.")
