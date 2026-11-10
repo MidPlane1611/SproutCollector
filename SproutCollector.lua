@@ -1,7 +1,7 @@
 --==================================================
 -- SPR0UT COLLECTOR
 -- GitHub-compatible client script
--- with persistent config saving
+-- with persistent config + field selection
 --==================================================
 
 local Players = game:GetService("Players")
@@ -18,6 +18,9 @@ local PlayerGui = Player:WaitForChild("PlayerGui")
 
 local SCAN_INTERVAL = 1
 local TELEPORT_DELAY = 0.1
+
+-- Zones that should be OFF by default on first run.
+-- Users can override these in the FIELDS tab.
 
 local EXCLUDED_ZONES = {
     ["Ant Field"] = true,
@@ -47,6 +50,7 @@ local SAVE_FILE = SAVE_FOLDER .. "/config.json"
 
 local saveConfig
 local loadedData
+local refreshFieldsList
 
 --==================================================
 -- GUI HELPERS
@@ -90,8 +94,8 @@ local ScreenGui = create("ScreenGui", {
 
 local Main = create("Frame", {
     Name = "Main",
-    Size = UDim2.fromOffset(320, 390),
-    Position = UDim2.new(0.5, -160, 0.5, -195),
+    Size = UDim2.fromOffset(320, 420),
+    Position = UDim2.new(0.5, -160, 0.5, -210),
     BackgroundColor3 = Color3.fromRGB(20, 23, 31),
     BorderSizePixel = 0
 }, ScreenGui)
@@ -143,12 +147,49 @@ local Minimize = create("TextButton", {
 round(Minimize, 7)
 
 --==================================================
+-- TAB BAR
+--==================================================
+
+local TabBar = create("Frame", {
+    Size = UDim2.new(1, 0, 0, 32),
+    Position = UDim2.fromOffset(0, 45),
+    BackgroundColor3 = Color3.fromRGB(24, 28, 37),
+    BorderSizePixel = 0
+}, Main)
+
+local IDsTab = create("TextButton", {
+    Size = UDim2.new(0.5, -3, 1, -6),
+    Position = UDim2.fromOffset(3, 3),
+    BackgroundColor3 = Color3.fromRGB(65, 115, 210),
+    Text = "IDS",
+    TextColor3 = Color3.new(1, 1, 1),
+    TextSize = 12,
+    Font = Enum.Font.GothamBold,
+    AutoButtonColor = false
+}, TabBar)
+
+round(IDsTab, 6)
+
+local FieldsTab = create("TextButton", {
+    Size = UDim2.new(0.5, -3, 1, -6),
+    Position = UDim2.new(0.5, 0, 0, 3),
+    BackgroundColor3 = Color3.fromRGB(42, 50, 65),
+    Text = "FIELDS",
+    TextColor3 = Color3.fromRGB(200, 210, 225),
+    TextSize = 12,
+    Font = Enum.Font.GothamBold,
+    AutoButtonColor = false
+}, TabBar)
+
+round(FieldsTab, 6)
+
+--==================================================
 -- CONTENT
 --==================================================
 
 local Content = create("Frame", {
-    Size = UDim2.new(1, -24, 1, -57),
-    Position = UDim2.fromOffset(12, 51),
+    Size = UDim2.new(1, -24, 1, -95),
+    Position = UDim2.fromOffset(12, 83),
     BackgroundTransparency = 1
 }, Main)
 
@@ -169,12 +210,19 @@ local Status = create("TextButton", {
 round(Status, 8)
 
 --==================================================
--- INPUT
+-- ID PAGE
 --==================================================
+
+local IDPage = create("Frame", {
+    Size = UDim2.new(1, 0, 1, -46),
+    Position = UDim2.fromOffset(0, 46),
+    BackgroundTransparency = 1,
+    Visible = true
+}, Content)
 
 local Input = create("TextBox", {
     Size = UDim2.new(1, -85, 0, 35),
-    Position = UDim2.fromOffset(0, 50),
+    Position = UDim2.fromOffset(0, 0),
     BackgroundColor3 = Color3.fromRGB(32, 38, 50),
     TextColor3 = Color3.fromRGB(240, 240, 240),
     PlaceholderColor3 = Color3.fromRGB(125, 135, 155),
@@ -183,67 +231,59 @@ local Input = create("TextBox", {
     TextSize = 13,
     Font = Enum.Font.Gotham,
     ClearTextOnFocus = false
-}, Content)
+}, IDPage)
 
 round(Input, 7)
 stroke(Input, Color3.fromRGB(55, 65, 82))
 
 local Add = create("TextButton", {
     Size = UDim2.new(0, 75, 0, 35),
-    Position = UDim2.new(1, -75, 0, 50),
+    Position = UDim2.new(1, -75, 0, 0),
     BackgroundColor3 = Color3.fromRGB(65, 115, 210),
     Text = "ADD",
     TextColor3 = Color3.new(1, 1, 1),
     TextSize = 13,
     Font = Enum.Font.GothamBold
-}, Content)
+}, IDPage)
 
 round(Add, 7)
 
---==================================================
--- ID LIST HEADER
---==================================================
-
 local ListHeader = create("TextLabel", {
     Size = UDim2.new(1, 0, 0, 25),
-    Position = UDim2.fromOffset(0, 96),
+    Position = UDim2.fromOffset(0, 42),
     BackgroundTransparency = 1,
     Text = "SAVED IDS",
     TextColor3 = Color3.fromRGB(155, 170, 195),
     TextSize = 11,
     Font = Enum.Font.GothamBold,
     TextXAlignment = Enum.TextXAlignment.Left
-}, Content)
+}, IDPage)
 
 local Counter = create("TextLabel", {
     Size = UDim2.fromOffset(65, 25),
-    Position = UDim2.new(1, -65, 0, 96),
+    Position = UDim2.new(1, -65, 0, 42),
     BackgroundTransparency = 1,
     Text = "0 IDs",
     TextColor3 = Color3.fromRGB(110, 170, 255),
     TextSize = 11,
     Font = Enum.Font.GothamBold,
     TextXAlignment = Enum.TextXAlignment.Right
-}, Content)
-
---==================================================
--- SCROLLING ID LIST
---==================================================
+}, IDPage)
 
 local List = create("ScrollingFrame", {
-    Size = UDim2.new(1, 0, 0, 155),
-    Position = UDim2.fromOffset(0, 122),
+    Size = UDim2.new(1, 0, 0, 160),
+    Position = UDim2.fromOffset(0, 68),
     BackgroundColor3 = Color3.fromRGB(27, 32, 42),
     BorderSizePixel = 0,
     ScrollBarThickness = 4,
     ScrollBarImageColor3 = Color3.fromRGB(100, 120, 155),
     CanvasSize = UDim2.new(0, 0, 0, 0),
     AutomaticCanvasSize = Enum.AutomaticSize.Y
-}, Content)
+}, IDPage)
 
 round(List, 8)
 
-local ListLayout = create("UIListLayout", {
+create("UIListLayout", {
     Padding = UDim.new(0, 5),
     SortOrder = Enum.SortOrder.LayoutOrder
 }, List)
@@ -255,10 +295,6 @@ create("UIPadding", {
     PaddingRight = UDim.new(0, 6)
 }, List)
 
---==================================================
--- FOOTER STATUS
---==================================================
-
 local Footer = create("TextLabel", {
     Size = UDim2.new(1, 0, 0, 40),
     Position = UDim2.new(0, 0, 1, -40),
@@ -269,7 +305,66 @@ local Footer = create("TextLabel", {
     Font = Enum.Font.Gotham,
     TextWrapped = true,
     TextXAlignment = Enum.TextXAlignment.Left
+}, IDPage)
+
+--==================================================
+-- FIELDS PAGE
+--==================================================
+
+local FieldsPage = create("Frame", {
+    Size = UDim2.new(1, 0, 1, -46),
+    Position = UDim2.fromOffset(0, 46),
+    BackgroundTransparency = 1,
+    Visible = false
 }, Content)
+
+local FieldsListHeader = create("TextLabel", {
+    Size = UDim2.new(1, 0, 0, 25),
+    Position = UDim2.fromOffset(0, 0),
+    BackgroundTransparency = 1,
+    Text = "FIELDS",
+    TextColor3 = Color3.fromRGB(155, 170, 195),
+    TextSize = 11,
+    Font = Enum.Font.GothamBold,
+    TextXAlignment = Enum.TextXAlignment.Left
+}, FieldsPage)
+
+local FieldsList = create("ScrollingFrame", {
+    Size = UDim2.new(1, 0, 0, 200),
+    Position = UDim2.fromOffset(0, 30),
+    BackgroundColor3 = Color3.fromRGB(27, 32, 42),
+    BorderSizePixel = 0,
+    ScrollBarThickness = 4,
+    ScrollBarImageColor3 = Color3.fromRGB(100, 120, 155),
+    CanvasSize = UDim2.new(0, 0, 0, 0),
+    AutomaticCanvasSize = Enum.AutomaticSize.Y
+}, FieldsPage)
+
+round(FieldsList, 8)
+
+create("UIListLayout", {
+    Padding = UDim.new(0, 5),
+    SortOrder = Enum.SortOrder.LayoutOrder
+}, FieldsList)
+
+create("UIPadding", {
+    PaddingTop = UDim.new(0, 6),
+    PaddingBottom = UDim.new(0, 6),
+    PaddingLeft = UDim.new(0, 6),
+    PaddingRight = UDim.new(0, 6)
+}, FieldsList)
+
+local FieldsFooter = create("TextLabel", {
+    Size = UDim2.new(1, 0, 0, 40),
+    Position = UDim2.new(0, 0, 1, -40),
+    BackgroundTransparency = 1,
+    Text = "",
+    TextColor3 = Color3.fromRGB(135, 150, 175),
+    TextSize = 11,
+    Font = Enum.Font.Gotham,
+    TextWrapped = true,
+    TextXAlignment = Enum.TextXAlignment.Left
+}, FieldsPage)
 
 --==================================================
 -- GUI DRAG
@@ -341,12 +436,13 @@ Minimize.MouseButton1Click:Connect(function()
     minimized = not minimized
 
     Content.Visible = not minimized
+    TabBar.Visible = not minimized
 
     if minimized then
         Main.Size = UDim2.fromOffset(320, 45)
         Minimize.Text = "+"
     else
-        Main.Size = UDim2.fromOffset(320, 390)
+        Main.Size = UDim2.fromOffset(320, 420)
         Minimize.Text = "−"
     end
 
@@ -355,22 +451,27 @@ Minimize.MouseButton1Click:Connect(function()
 end)
 
 --==================================================
--- SAVED IDS
+-- SAVED IDS + FIELD SELECTION STATE
 --==================================================
 
 local SavedIDs = {}
 local IDOrder = {}
+local fieldSelection = {} -- [zoneName] = true/false (nil = default)
 
 local function normalizeID(id)
-
     id = tostring(id):gsub("^0+", "")
-
     if id == "" then
         return "0"
     end
-
     return id
+end
 
+local function isFieldEnabled(name)
+    local explicit = fieldSelection[name]
+    if explicit ~= nil then
+        return explicit
+    end
+    return not EXCLUDED_ZONES[name]
 end
 
 --==================================================
@@ -391,15 +492,28 @@ if type(isfile) == "function" and type(readfile) == "function" then
     end
 end
 
-if loadedData and type(loadedData.ids) == "table" then
-    for _, rawID in ipairs(loadedData.ids) do
-        local id = normalizeID(rawID)
-        if id ~= "0" and not SavedIDs[id] then
-            SavedIDs[id] = true
-            table.insert(IDOrder, id)
+if loadedData then
+    if type(loadedData.ids) == "table" then
+        for _, rawID in ipairs(loadedData.ids) do
+            local id = normalizeID(rawID)
+            if id ~= "0" and not SavedIDs[id] then
+                SavedIDs[id] = true
+                table.insert(IDOrder, id)
+            end
+        end
+    end
+    if type(loadedData.fields) == "table" then
+        for name, enabled in pairs(loadedData.fields) do
+            if type(name) == "string" and type(enabled) == "boolean" then
+                fieldSelection[name] = enabled
+            end
         end
     end
 end
+
+--==================================================
+-- SAVE CONFIG
+--==================================================
 
 saveConfig = function()
     if type(writefile) ~= "function" then
@@ -416,6 +530,7 @@ saveConfig = function()
 
     local data = {
         ids = IDOrder,
+        fields = fieldSelection,
         guiPosition = {
             xScale  = Main.Position.X.Scale,
             xOffset = Main.Position.X.Offset,
@@ -434,20 +549,20 @@ saveConfig = function()
     end
 end
 
+--==================================================
+-- ID LIST RENDER
+--==================================================
+
 local function updateCounter()
-
     Counter.Text = tostring(#IDOrder) .. " IDs"
-
 end
 
 local function refreshList()
 
     for _, child in ipairs(List:GetChildren()) do
-
         if child:IsA("Frame") then
             child:Destroy()
         end
-
     end
 
     for index, id in ipairs(IDOrder) do
@@ -489,12 +604,10 @@ local function refreshList()
             SavedIDs[id] = nil
 
             for i, savedID in ipairs(IDOrder) do
-
                 if savedID == id then
                     table.remove(IDOrder, i)
                     break
                 end
-
             end
 
             refreshList()
@@ -508,7 +621,150 @@ local function refreshList()
 
 end
 
--- Numbers only
+--==================================================
+-- FIELDS LIST RENDER
+--==================================================
+
+refreshFieldsList = function()
+
+    for _, child in ipairs(FieldsList:GetChildren()) do
+        if child:IsA("Frame") then
+            child:Destroy()
+        end
+    end
+
+    local folder = Workspace:FindFirstChild("FlowerZones")
+
+    if not folder then
+        FieldsFooter.Text = "No FlowerZones found. Join the game first."
+        return
+    end
+
+    local names = {}
+
+    for _, zone in ipairs(folder:GetChildren()) do
+        table.insert(names, zone.Name)
+    end
+
+    table.sort(names)
+
+    if #names == 0 then
+        FieldsFooter.Text = "FlowerZones is empty."
+        return
+    end
+
+    for index, name in ipairs(names) do
+
+        local enabled = isFieldEnabled(name)
+
+        local Row = create("Frame", {
+            Size = UDim2.new(1, -2, 0, 32),
+            BackgroundColor3 = Color3.fromRGB(37, 44, 57),
+            BorderSizePixel = 0,
+            LayoutOrder = index
+        }, FieldsList)
+
+        round(Row, 6)
+
+        create("TextLabel", {
+            Size = UDim2.new(1, -68, 1, 0),
+            Position = UDim2.fromOffset(9, 0),
+            BackgroundTransparency = 1,
+            Text = name,
+            TextColor3 = Color3.fromRGB(225, 232, 245),
+            TextSize = 12,
+            Font = Enum.Font.Gotham,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            TextTruncate = Enum.TextTruncate.AtEnd
+        }, Row)
+
+        local Toggle = create("TextButton", {
+            Size = UDim2.fromOffset(55, 24),
+            Position = UDim2.new(1, -60, 0.5, -12),
+            BackgroundColor3 = enabled
+                and Color3.fromRGB(35, 145, 85)
+                or Color3.fromRGB(120, 45, 50),
+            Text = enabled and "ON" or "OFF",
+            TextColor3 = Color3.new(1, 1, 1),
+            TextSize = 11,
+            Font = Enum.Font.GothamBold,
+            AutoButtonColor = true
+        }, Row)
+
+        round(Toggle, 5)
+
+        Toggle.MouseButton1Click:Connect(function()
+
+            local nowEnabled = not isFieldEnabled(name)
+
+            fieldSelection[name] = nowEnabled
+
+            Toggle.BackgroundColor3 = nowEnabled
+                and Color3.fromRGB(35, 145, 85)
+                or Color3.fromRGB(120, 45, 50)
+
+            Toggle.Text = nowEnabled and "ON" or "OFF"
+
+            -- Update footer count
+            local enabledCount = 0
+            for _, n in ipairs(names) do
+                if isFieldEnabled(n) then
+                    enabledCount = enabledCount + 1
+                end
+            end
+            FieldsFooter.Text = enabledCount .. " / " .. #names .. " fields enabled."
+
+            saveConfig()
+
+        end)
+
+    end
+
+    local enabledCount = 0
+    for _, name in ipairs(names) do
+        if isFieldEnabled(name) then
+            enabledCount = enabledCount + 1
+        end
+    end
+    FieldsFooter.Text = enabledCount .. " / " .. #names .. " fields enabled."
+
+end
+
+--==================================================
+-- TAB SWITCHING
+--==================================================
+
+IDsTab.MouseButton1Click:Connect(function()
+
+    IDPage.Visible = true
+    FieldsPage.Visible = false
+
+    IDsTab.BackgroundColor3 = Color3.fromRGB(65, 115, 210)
+    IDsTab.TextColor3 = Color3.new(1, 1, 1)
+
+    FieldsTab.BackgroundColor3 = Color3.fromRGB(42, 50, 65)
+    FieldsTab.TextColor3 = Color3.fromRGB(200, 210, 225)
+
+end)
+
+FieldsTab.MouseButton1Click:Connect(function()
+
+    IDPage.Visible = false
+    FieldsPage.Visible = true
+
+    IDsTab.BackgroundColor3 = Color3.fromRGB(42, 50, 65)
+    IDsTab.TextColor3 = Color3.fromRGB(200, 210, 225)
+
+    FieldsTab.BackgroundColor3 = Color3.fromRGB(65, 115, 210)
+    FieldsTab.TextColor3 = Color3.new(1, 1, 1)
+
+    refreshFieldsList()
+
+end)
+
+--==================================================
+-- INPUT / ADD
+--==================================================
 
 Input:GetPropertyChangedSignal("Text"):Connect(function()
 
@@ -519,8 +775,6 @@ Input:GetPropertyChangedSignal("Text"):Connect(function()
     end
 
 end)
-
--- Add ID
 
 Add.MouseButton1Click:Connect(function()
 
@@ -600,7 +854,7 @@ local function getBounds(object)
 end
 
 --==================================================
--- FLOWER ZONES
+-- FLOWER ZONES (uses field selection)
 --==================================================
 
 local function getFlowerZones()
@@ -614,7 +868,7 @@ local function getFlowerZones()
 
     for _, zone in ipairs(folder:GetChildren()) do
 
-        if not EXCLUDED_ZONES[zone.Name] then
+        if isFieldEnabled(zone.Name) then
 
             local bounds = getBounds(zone)
 
@@ -744,9 +998,7 @@ local RunToken = 0
 local ActiveCycle = nil
 
 local function isRunning(token)
-
     return Enabled and RunToken == token
-
 end
 
 local function restorePosition(cycle)
@@ -882,16 +1134,12 @@ local function updateStatus()
     if Enabled then
 
         Status.Text = "●  COLLECTOR ACTIVE"
-
-        Status.BackgroundColor3 =
-            Color3.fromRGB(35, 145, 85)
+        Status.BackgroundColor3 = Color3.fromRGB(35, 145, 85)
 
     else
 
         Status.Text = "●  COLLECTOR OFF"
-
-        Status.BackgroundColor3 =
-            Color3.fromRGB(150, 45, 50)
+        Status.BackgroundColor3 = Color3.fromRGB(150, 45, 50)
 
     end
 
@@ -970,6 +1218,7 @@ if loadedData then
     if loadedData.minimized == true then
         minimized = true
         Content.Visible = false
+        TabBar.Visible = false
         Main.Size = UDim2.fromOffset(320, 45)
         Minimize.Text = "+"
     end
