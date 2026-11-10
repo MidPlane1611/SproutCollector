@@ -1,12 +1,12 @@
 --==================================================
--- SPR0UT COLLECTOR — final build
--- compact GUI + exact teleport + purge + touch all
+-- SPR0UT COLLECTOR — fly out, teleport home, wait
 --==================================================
 
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local UserInputService = game:GetService("UserInputService")
 local HttpService = game:GetService("HttpService")
+local RunService = game:GetService("RunService")
 
 local Player = Players.LocalPlayer
 local PlayerGui = Player:WaitForChild("PlayerGui")
@@ -16,12 +16,12 @@ local PlayerGui = Player:WaitForChild("PlayerGui")
 --==================================================
 
 local SCAN_INTERVAL = 1
-local TELEPORT_DELAY = 0.1
-local TELEPORT_Y_OFFSET = 0   -- 0 = точно в объект, без подъёма
+local HOVER_AT_TARGET = 0.2
 local PURGE_ON_START = false
 
--- Поля, которые при первом запуске выключены.
--- Если не уверен — поставь: local EXCLUDED_ZONES = {}
+local SPEED_MIN = 20
+local SPEED_MAX = 400
+local FlySpeed = 80
 
 local EXCLUDED_ZONES = {
     ["Ant Field"] = true,
@@ -47,6 +47,7 @@ local loadedData
 local refreshFieldsList
 local purgeCollectibles
 local touchAllCollectibles
+local refreshSpeedUI
 
 --==================================================
 -- GUI HELPERS
@@ -90,7 +91,6 @@ local Main = create("Frame", {
     BackgroundColor3 = Color3.fromRGB(20, 23, 31),
     BorderSizePixel = 0
 }, ScreenGui)
-
 round(Main, 10)
 stroke(Main, Color3.fromRGB(65, 75, 95))
 
@@ -192,12 +192,56 @@ local Status = create("TextButton", {
 round(Status, 7)
 
 --==================================================
+-- SPEED SLIDER
+--==================================================
+
+local SpeedControl = create("Frame", {
+    Size = UDim2.new(1, 0, 0, 22),
+    Position = UDim2.fromOffset(0, 34),
+    BackgroundTransparency = 1
+}, Content)
+
+local SpeedLabel = create("TextLabel", {
+    Size = UDim2.new(1, 0, 0, 10),
+    BackgroundTransparency = 1,
+    Text = "Fly speed: " .. FlySpeed .. " studs/s",
+    TextColor3 = Color3.fromRGB(160, 175, 200),
+    TextSize = 9,
+    Font = Enum.Font.Gotham,
+    TextXAlignment = Enum.TextXAlignment.Left
+}, SpeedControl)
+
+local SpeedBar = create("Frame", {
+    Size = UDim2.new(1, 0, 0, 8),
+    Position = UDim2.fromOffset(0, 12),
+    BackgroundColor3 = Color3.fromRGB(40, 48, 62),
+    BorderSizePixel = 0
+}, SpeedControl)
+round(SpeedBar, 4)
+
+local SpeedFill = create("Frame", {
+    Size = UDim2.new((FlySpeed - SPEED_MIN) / (SPEED_MAX - SPEED_MIN), 0, 1, 0),
+    BackgroundColor3 = Color3.fromRGB(65, 115, 210),
+    BorderSizePixel = 0
+}, SpeedBar)
+round(SpeedFill, 4)
+
+local SpeedHandle = create("Frame", {
+    Size = UDim2.fromOffset(10, 14),
+    Position = UDim2.new((FlySpeed - SPEED_MIN) / (SPEED_MAX - SPEED_MIN), -5, 0.5, -7),
+    BackgroundColor3 = Color3.fromRGB(240, 240, 245),
+    BorderSizePixel = 0,
+    ZIndex = 2
+}, SpeedBar)
+round(SpeedHandle, 5)
+
+--==================================================
 -- ID PAGE
 --==================================================
 
 local IDPage = create("Frame", {
-    Size = UDim2.new(1, 0, 1, -36),
-    Position = UDim2.fromOffset(0, 36),
+    Size = UDim2.new(1, 0, 1, -60),
+    Position = UDim2.fromOffset(0, 60),
     BackgroundTransparency = 1,
     Visible = true
 }, Content)
@@ -250,7 +294,7 @@ local Counter = create("TextLabel", {
 }, IDPage)
 
 local List = create("ScrollingFrame", {
-    Size = UDim2.new(1, 0, 0, 140),
+    Size = UDim2.new(1, 0, 0, 160),
     Position = UDim2.fromOffset(0, 54),
     BackgroundColor3 = Color3.fromRGB(27, 32, 42),
     BorderSizePixel = 0,
@@ -290,8 +334,8 @@ local Footer = create("TextLabel", {
 --==================================================
 
 local FieldsPage = create("Frame", {
-    Size = UDim2.new(1, 0, 1, -36),
-    Position = UDim2.fromOffset(0, 36),
+    Size = UDim2.new(1, 0, 1, -60),
+    Position = UDim2.fromOffset(0, 60),
     BackgroundTransparency = 1,
     Visible = false
 }, Content)
@@ -335,7 +379,7 @@ local TouchAll = create("TextButton", {
     Size = UDim2.new(1, 0, 0, 26),
     Position = UDim2.fromOffset(0, 138),
     BackgroundColor3 = Color3.fromRGB(65, 115, 210),
-    Text = "TOUCH ALL",
+    Text = "TOUCH ALL (fly + return)",
     TextColor3 = Color3.new(1, 1, 1),
     TextSize = 10,
     Font = Enum.Font.GothamBold
@@ -380,7 +424,7 @@ Header.InputBegan:Connect(function(input)
         input.Changed:Connect(function()
             if input.UserInputState == Enum.UserInputState.End then
                 dragging = false
-                saveConfig()
+                if saveConfig then saveConfig() end
             end
         end)
     end
@@ -422,7 +466,7 @@ Minimize.MouseButton1Click:Connect(function()
         Main.Size = UDim2.fromOffset(280, 400)
         Minimize.Text = "−"
     end
-    saveConfig()
+    if saveConfig then saveConfig() end
 end)
 
 --==================================================
@@ -480,6 +524,9 @@ if loadedData then
             end
         end
     end
+    if type(loadedData.speed) == "number" then
+        FlySpeed = math.clamp(math.floor(loadedData.speed), SPEED_MIN, SPEED_MAX)
+    end
 end
 
 --==================================================
@@ -498,6 +545,7 @@ saveConfig = function()
     local data = {
         ids = IDOrder,
         fields = fieldSelection,
+        speed = FlySpeed,
         guiPosition = {
             xScale  = Main.Position.X.Scale,
             xOffset = Main.Position.X.Offset,
@@ -513,6 +561,62 @@ saveConfig = function()
         pcall(writefile, SAVE_FILE, encoded)
     end
 end
+
+--==================================================
+-- SPEED SLIDER
+--==================================================
+
+refreshSpeedUI = function()
+    local ratio = (FlySpeed - SPEED_MIN) / (SPEED_MAX - SPEED_MIN)
+    SpeedFill.Size = UDim2.new(ratio, 0, 1, 0)
+    SpeedHandle.Position = UDim2.new(ratio, -5, 0.5, -7)
+    SpeedLabel.Text = "Fly speed: " .. FlySpeed .. " studs/s"
+end
+
+refreshSpeedUI()
+
+local function setSpeed(value, doSave)
+    value = math.clamp(math.floor(value + 0.5), SPEED_MIN, SPEED_MAX)
+    FlySpeed = value
+    refreshSpeedUI()
+    if doSave and saveConfig then saveConfig() end
+end
+
+local draggingSpeed = false
+
+local function updateSpeedFromPosition(pos)
+    local barAbs = SpeedBar.AbsolutePosition
+    local barSize = SpeedBar.AbsoluteSize
+    if barSize.X <= 0 then return end
+    local ratio = math.clamp((pos.X - barAbs.X) / barSize.X, 0, 1)
+    local value = SPEED_MIN + ratio * (SPEED_MAX - SPEED_MIN)
+    setSpeed(value, false)
+end
+
+SpeedBar.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+        draggingSpeed = true
+        updateSpeedFromPosition(input.Position)
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if draggingSpeed and (input.UserInputType == Enum.UserInputType.MouseMovement
+        or input.UserInputType == Enum.UserInputType.Touch) then
+        updateSpeedFromPosition(input.Position)
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+        if draggingSpeed then
+            draggingSpeed = false
+            saveConfig()
+        end
+    end
+end)
 
 --==================================================
 -- ID LIST
@@ -818,7 +922,7 @@ local function getColorMapID(object)
 end
 
 --==================================================
--- TELEPORT (exact, no Y lift)
+-- TELEPORT HELPERS
 --==================================================
 
 local function getTargetCFrame(object)
@@ -831,39 +935,77 @@ local function getTargetCFrame(object)
     return nil
 end
 
-local function teleportTo(character, root, object)
-    if not root or not root.Parent then return false end
-    if not object or not object.Parent then return false end
-
-    local target = getTargetCFrame(object)
-    if not target then return false end
-
-    local finalCF = target
-    if TELEPORT_Y_OFFSET ~= 0 then
-        finalCF = target + Vector3.new(0, TELEPORT_Y_OFFSET, 0)
-    end
-
-    if character and character.PrimaryPart then
-        local ok = pcall(function()
-            character:PivotTo(finalCF)
-        end)
-        if ok then
-            root.AssemblyLinearVelocity = Vector3.zero
-            root.AssemblyAngularVelocity = Vector3.zero
-            return true
+local function setCharacterCollisions(character, enabled)
+    local state = {}
+    for _, part in ipairs(character:GetDescendants()) do
+        if part:IsA("BasePart") then
+            state[part] = part.CanCollide
+            part.CanCollide = enabled
         end
     end
+    return state
+end
 
-    local ok2 = pcall(function()
-        root.CFrame = finalCF
-    end)
-    if ok2 then
-        root.AssemblyLinearVelocity = Vector3.zero
-        root.AssemblyAngularVelocity = Vector3.zero
+local function restoreCharacterCollisions(state)
+    for part, value in pairs(state) do
+        if part.Parent then
+            part.CanCollide = value
+        end
+    end
+end
+
+-- Fly movement that ignores obstacles
+local function smoothMoveTo(character, root, targetCF, speed, cancelCheck)
+    if not root or not root.Parent then return false end
+    if not character or not character.PrimaryPart then return false end
+
+    local startPos = root.CFrame.Position
+    local endPos = targetCF.Position
+    local distance = (endPos - startPos).Magnitude
+
+    if distance < 0.5 then
+        pcall(function() character:PivotTo(targetCF) end)
         return true
     end
 
-    return false
+    speed = math.max(speed, 1)
+    local duration = distance / speed
+    local startTime = os.clock()
+
+    local collisionState = setCharacterCollisions(character, false)
+    local success = true
+
+    while true do
+        if not root.Parent then success = false break end
+        if Player.Character ~= character then success = false break end
+        if cancelCheck and not cancelCheck() then success = false break end
+
+        local elapsed = os.clock() - startTime
+        local alpha = math.min(elapsed / duration, 1)
+        local currentPos = startPos:Lerp(endPos, alpha)
+
+        pcall(function()
+            character:PivotTo(CFrame.new(currentPos, endPos))
+        end)
+
+        root.AssemblyLinearVelocity = Vector3.zero
+        root.AssemblyAngularVelocity = Vector3.zero
+
+        if alpha >= 1 then break end
+        RunService.Heartbeat:Wait()
+    end
+
+    if success then
+        pcall(function() character:PivotTo(targetCF) end)
+        root.AssemblyLinearVelocity = Vector3.zero
+        root.AssemblyAngularVelocity = Vector3.zero
+    end
+
+    if character and character.Parent then
+        restoreCharacterCollisions(collisionState)
+    end
+
+    return success
 end
 
 --==================================================
@@ -890,7 +1032,7 @@ Purge.MouseButton1Click:Connect(function()
 end)
 
 --==================================================
--- TOUCH ALL
+-- TOUCH ALL (fly + return home)
 --==================================================
 
 touchAllCollectibles = function()
@@ -916,20 +1058,19 @@ touchAllCollectibles = function()
     task.spawn(function()
         for i, obj in ipairs(kids) do
             if not obj.Parent then continue end
+            if not root.Parent then break end
+
             local target
             if obj:IsA("BasePart") then
                 target = obj.CFrame
             elseif obj:IsA("Model") then
                 target = obj:GetPivot()
             end
+
             if target then
-                if character.PrimaryPart then
-                    pcall(function() character:PivotTo(target) end)
-                end
-                root.AssemblyLinearVelocity = Vector3.zero
-                root.AssemblyAngularVelocity = Vector3.zero
-                FieldsFooter.Text = "Touching " .. i .. " / " .. #kids
-                task.wait(TELEPORT_DELAY)
+                FieldsFooter.Text = "Flying " .. i .. " / " .. #kids
+                smoothMoveTo(character, root, target, FlySpeed, nil)
+                task.wait(HOVER_AT_TARGET)
             end
         end
         pcall(function() root.CFrame = origin end)
@@ -942,29 +1083,26 @@ TouchAll.MouseButton1Click:Connect(function()
 end)
 
 --==================================================
--- SCANNER
+-- SCANNER (fly out, teleport home, wait)
 --==================================================
 
 local Enabled = false
 local RunToken = 0
-local ActiveCycle = nil
+local HomePosition = nil
 
 local function isRunning(token)
     return Enabled and RunToken == token
 end
 
-local function restorePosition(cycle)
-    if not cycle or cycle.restored then return end
-    cycle.restored = true
-    local root = cycle.root
-    if root and root.Parent then
-        root.CFrame = cycle.origin
-        root.AssemblyLinearVelocity = Vector3.zero
-        root.AssemblyAngularVelocity = Vector3.zero
-    end
-    if ActiveCycle == cycle then
-        ActiveCycle = nil
-    end
+local function teleportHome()
+    if not HomePosition then return end
+    local character = Player.Character
+    if not character then return end
+    local root = character:FindFirstChild("HumanoidRootPart")
+    if not root or not root.Parent then return end
+    pcall(function() character:PivotTo(HomePosition) end)
+    root.AssemblyLinearVelocity = Vector3.zero
+    root.AssemblyAngularVelocity = Vector3.zero
 end
 
 local function scanPass(token)
@@ -976,13 +1114,6 @@ local function scanPass(token)
 
     local zones = getFlowerZones()
     if not isRunning(token) then return end
-
-    local cycle = {
-        root = root,
-        origin = root.CFrame,
-        restored = false
-    }
-    ActiveCycle = cycle
 
     local collectiblesFolder = Workspace:FindFirstChild("Collectibles")
     local objects = {}
@@ -1009,26 +1140,39 @@ local function scanPass(token)
         end
     end
 
-    Footer.Text = string.format(
-        "Scanned %d, ID %d, zones %d",
-        scanned, matchedID, #targets
-    )
+    if #targets == 0 then
+        Footer.Text = string.format(
+            "No targets (scanned %d, ID %d). Waiting...",
+            scanned, matchedID
+        )
+        return
+    end
+
+    Footer.Text = "Flying to " .. #targets .. " target(s)..."
 
     for index, object in ipairs(targets) do
         if not isRunning(token) then break end
         if Player.Character ~= character then break end
         if not root.Parent then break end
+        if not object.Parent then continue end
 
-        if teleportTo(character, root, object) then
-            Footer.Text = "Visiting " .. index .. " / " .. #targets
-            task.wait(TELEPORT_DELAY)
+        local targetCF = getTargetCFrame(object)
+        if targetCF then
+            Footer.Text = "Flying " .. index .. " / " .. #targets
+            smoothMoveTo(character, root, targetCF, FlySpeed, function()
+                return isRunning(token)
+            end)
+            task.wait(HOVER_AT_TARGET)
         end
     end
 
-    restorePosition(cycle)
+    -- Return home
+    if isRunning(token) and HomePosition then
+        teleportHome()
+    end
 
     if isRunning(token) then
-        Footer.Text = "Waiting for next scan..."
+        Footer.Text = "Returned home. Waiting..."
     end
 end
 
@@ -1052,6 +1196,12 @@ Status.MouseButton1Click:Connect(function()
     updateStatus()
 
     if Enabled then
+        local character = Player.Character
+        local root = character and character:FindFirstChild("HumanoidRootPart")
+        if root then
+            HomePosition = root.CFrame
+        end
+
         local token = RunToken
         Footer.Text = "Starting..."
         task.spawn(function()
@@ -1060,7 +1210,6 @@ Status.MouseButton1Click:Connect(function()
                 local success, errorMessage = pcall(scanPass, token)
                 if not success then
                     warn("[Sprout Collector]", errorMessage)
-                    restorePosition(ActiveCycle)
                     Footer.Text = "Error. Check console."
                 end
                 local remaining = SCAN_INTERVAL - (os.clock() - started)
@@ -1070,7 +1219,8 @@ Status.MouseButton1Click:Connect(function()
             end
         end)
     else
-        restorePosition(ActiveCycle)
+        teleportHome()
+        HomePosition = nil
         Footer.Text = "Stopped."
     end
 end)
@@ -1098,6 +1248,8 @@ if loadedData then
     end
 end
 
+refreshSpeedUI()
+
 --==================================================
 -- INITIALIZE
 --==================================================
@@ -1115,4 +1267,4 @@ else
     Footer.Text = "Ready."
 end
 
-print("[Sprout Collector] loaded.")
+print("[Sprout Collector] loaded (fly + return home + wait).")
