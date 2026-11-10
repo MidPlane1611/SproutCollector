@@ -1,5 +1,5 @@
 --==================================================
--- SPR0UT COLLECTOR — fly out, teleport home, wait
+-- SPR0UT COLLECTOR — recursive BackDecal + folder support
 --==================================================
 
 local Players = game:GetService("Players")
@@ -75,7 +75,7 @@ local function stroke(object, color, transparency)
 end
 
 --==================================================
--- MAIN GUI (280 x 400)
+-- MAIN GUI
 --==================================================
 
 local ScreenGui = create("ScreenGui", {
@@ -883,7 +883,7 @@ local function intersectsFlowerZone(object, zones)
 end
 
 --==================================================
--- COLOR MAP ID
+-- COLOR MAP ID (recursive BackDecal search!)
 --==================================================
 
 local function extractID(value)
@@ -901,7 +901,8 @@ local function extractID(value)
 end
 
 local function getColorMapID(object)
-    local backDecal = object:FindFirstChild("BackDecal")
+    -- Recursive search: BackDecal may be nested deep inside the object
+    local backDecal = object:FindFirstChild("BackDecal", true)
     if not backDecal then return nil end
 
     local properties = { "ColorMap", "Texture", "SoundId", "MeshId", "Image" }
@@ -922,18 +923,50 @@ local function getColorMapID(object)
 end
 
 --==================================================
--- TELEPORT HELPERS
+-- TARGET CFrame (supports Folder too!)
 --==================================================
 
 local function getTargetCFrame(object)
     if object:IsA("BasePart") then
         return object.CFrame
     end
+
     if object:IsA("Model") then
-        return object:GetPivot()
+        if object.PrimaryPart then
+            return object.PrimaryPart.CFrame
+        end
+        local ok, pivot = pcall(function() return object:GetPivot() end)
+        if ok and pivot then return pivot end
+        -- Fallback: first BasePart
+        for _, child in ipairs(object:GetDescendants()) do
+            if child:IsA("BasePart") then
+                return child.CFrame
+            end
+        end
     end
+
+    -- Folder or anything else — find first BasePart inside (recursive)
+    if object:IsA("Folder") or object:IsA("Model") then
+        for _, child in ipairs(object:GetDescendants()) do
+            if child:IsA("BasePart") then
+                return child.CFrame
+            end
+        end
+    end
+
+    -- Last resort: any BasePart descendant
+    for _, child in ipairs(object:GetDescendants()) do
+        if child:IsA("BasePart") then
+            return child.CFrame
+        end
+    end
+
     return nil
 end
+
+--==================================================
+-- FLY HELPERS
+--==================================================
 
 local function setCharacterCollisions(character, enabled)
     local state = {}
@@ -954,7 +987,6 @@ local function restoreCharacterCollisions(state)
     end
 end
 
--- Fly movement that ignores obstacles
 local function smoothMoveTo(character, root, targetCF, speed, cancelCheck)
     if not root or not root.Parent then return false end
     if not character or not character.PrimaryPart then return false end
@@ -1032,7 +1064,7 @@ Purge.MouseButton1Click:Connect(function()
 end)
 
 --==================================================
--- TOUCH ALL (fly + return home)
+-- TOUCH ALL
 --==================================================
 
 touchAllCollectibles = function()
@@ -1060,13 +1092,7 @@ touchAllCollectibles = function()
             if not obj.Parent then continue end
             if not root.Parent then break end
 
-            local target
-            if obj:IsA("BasePart") then
-                target = obj.CFrame
-            elseif obj:IsA("Model") then
-                target = obj:GetPivot()
-            end
-
+            local target = getTargetCFrame(obj)
             if target then
                 FieldsFooter.Text = "Flying " .. i .. " / " .. #kids
                 smoothMoveTo(character, root, target, FlySpeed, nil)
@@ -1083,7 +1109,7 @@ TouchAll.MouseButton1Click:Connect(function()
 end)
 
 --==================================================
--- SCANNER (fly out, teleport home, wait)
+-- SCANNER
 --==================================================
 
 local Enabled = false
@@ -1124,6 +1150,8 @@ local function scanPass(token)
     local targets = {}
     local scanned = 0
     local matchedID = 0
+    local hadDecal = 0
+    local hadNoCF = 0
 
     for _, object in ipairs(objects) do
         if not isRunning(token) then break end
@@ -1131,10 +1159,18 @@ local function scanPass(token)
 
         if object.Name == "C" then
             local id = getColorMapID(object)
-            if id and SavedIDs[id] then
-                matchedID = matchedID + 1
-                if intersectsFlowerZone(object, zones) then
-                    table.insert(targets, object)
+            if id then
+                hadDecal = hadDecal + 1
+                if SavedIDs[id] then
+                    matchedID = matchedID + 1
+                    if intersectsFlowerZone(object, zones) then
+                        local cf = getTargetCFrame(object)
+                        if cf then
+                            table.insert(targets, {object = object, cf = cf})
+                        else
+                            hadNoCF = hadNoCF + 1
+                        end
+                    end
                 end
             end
         end
@@ -1142,31 +1178,27 @@ local function scanPass(token)
 
     if #targets == 0 then
         Footer.Text = string.format(
-            "No targets (scanned %d, ID %d). Waiting...",
-            scanned, matchedID
+            "None | scan %d, decal %d, id %d, noCF %d",
+            scanned, hadDecal, matchedID, hadNoCF
         )
         return
     end
 
     Footer.Text = "Flying to " .. #targets .. " target(s)..."
 
-    for index, object in ipairs(targets) do
+    for index, entry in ipairs(targets) do
         if not isRunning(token) then break end
         if Player.Character ~= character then break end
         if not root.Parent then break end
-        if not object.Parent then continue end
+        if not entry.object.Parent then continue end
 
-        local targetCF = getTargetCFrame(object)
-        if targetCF then
-            Footer.Text = "Flying " .. index .. " / " .. #targets
-            smoothMoveTo(character, root, targetCF, FlySpeed, function()
-                return isRunning(token)
-            end)
-            task.wait(HOVER_AT_TARGET)
-        end
+        Footer.Text = "Flying " .. index .. " / " .. #targets
+        smoothMoveTo(character, root, entry.cf, FlySpeed, function()
+            return isRunning(token)
+        end)
+        task.wait(HOVER_AT_TARGET)
     end
 
-    -- Return home
     if isRunning(token) and HomePosition then
         teleportHome()
     end
@@ -1267,4 +1299,4 @@ else
     Footer.Text = "Ready."
 end
 
-print("[Sprout Collector] loaded (fly + return home + wait).")
+print("[Sprout Collector] loaded (recursive BackDecal + folder support).")
