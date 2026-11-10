@@ -1,12 +1,11 @@
 --==================================================
--- SPR0UT COLLECTOR — recursive BackDecal + folder support
+-- SPR0UT COLLECTOR — fixed flight + diagnostics
 --==================================================
 
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local UserInputService = game:GetService("UserInputService")
 local HttpService = game:GetService("HttpService")
-local RunService = game:GetService("RunService")
 
 local Player = Players.LocalPlayer
 local PlayerGui = Player:WaitForChild("PlayerGui")
@@ -16,12 +15,12 @@ local PlayerGui = Player:WaitForChild("PlayerGui")
 --==================================================
 
 local SCAN_INTERVAL = 1
-local HOVER_AT_TARGET = 0.2
+local HOVER_AT_TARGET = 0.3
 local PURGE_ON_START = false
 
 local SPEED_MIN = 20
-local SPEED_MAX = 400
-local FlySpeed = 80
+local SPEED_MAX = 300
+local FlySpeed = 60
 
 local EXCLUDED_ZONES = {
     ["Ant Field"] = true,
@@ -46,7 +45,6 @@ local saveConfig
 local loadedData
 local refreshFieldsList
 local purgeCollectibles
-local touchAllCollectibles
 local refreshSpeedUI
 
 --==================================================
@@ -352,7 +350,7 @@ create("TextLabel", {
 }, FieldsPage)
 
 local FieldsList = create("ScrollingFrame", {
-    Size = UDim2.new(1, 0, 0, 110),
+    Size = UDim2.new(1, 0, 0, 140),
     Position = UDim2.fromOffset(0, 22),
     BackgroundColor3 = Color3.fromRGB(27, 32, 42),
     BorderSizePixel = 0,
@@ -374,17 +372,6 @@ create("UIPadding", {
     PaddingLeft = UDim.new(0, 5),
     PaddingRight = UDim.new(0, 5)
 }, FieldsList)
-
-local TouchAll = create("TextButton", {
-    Size = UDim2.new(1, 0, 0, 26),
-    Position = UDim2.fromOffset(0, 138),
-    BackgroundColor3 = Color3.fromRGB(65, 115, 210),
-    Text = "TOUCH ALL (fly + return)",
-    TextColor3 = Color3.new(1, 1, 1),
-    TextSize = 10,
-    Font = Enum.Font.GothamBold
-}, FieldsPage)
-round(TouchAll, 5)
 
 local Purge = create("TextButton", {
     Size = UDim2.new(1, 0, 0, 26),
@@ -883,7 +870,7 @@ local function intersectsFlowerZone(object, zones)
 end
 
 --==================================================
--- COLOR MAP ID (recursive BackDecal search!)
+-- COLOR MAP ID
 --==================================================
 
 local function extractID(value)
@@ -901,7 +888,6 @@ local function extractID(value)
 end
 
 local function getColorMapID(object)
-    -- Recursive search: BackDecal may be nested deep inside the object
     local backDecal = object:FindFirstChild("BackDecal", true)
     if not backDecal then return nil end
 
@@ -923,80 +909,41 @@ local function getColorMapID(object)
 end
 
 --==================================================
--- TARGET CFrame (supports Folder too!)
+-- TARGET CFrame
 --==================================================
 
 local function getTargetCFrame(object)
     if object:IsA("BasePart") then
         return object.CFrame
     end
-
     if object:IsA("Model") then
         if object.PrimaryPart then
             return object.PrimaryPart.CFrame
         end
         local ok, pivot = pcall(function() return object:GetPivot() end)
         if ok and pivot then return pivot end
-        -- Fallback: first BasePart
-        for _, child in ipairs(object:GetDescendants()) do
-            if child:IsA("BasePart") then
-                return child.CFrame
-            end
-        end
     end
-
-    -- Folder or anything else — find first BasePart inside (recursive)
-    if object:IsA("Folder") or object:IsA("Model") then
-        for _, child in ipairs(object:GetDescendants()) do
-            if child:IsA("BasePart") then
-                return child.CFrame
-            end
-        end
-    end
-
-    -- Last resort: any BasePart descendant
     for _, child in ipairs(object:GetDescendants()) do
         if child:IsA("BasePart") then
             return child.CFrame
         end
     end
-
     return nil
 end
 
 --==================================================
--- FLY HELPERS
+-- FLY (direct CFrame, no PivotTo)
 --==================================================
 
-local function setCharacterCollisions(character, enabled)
-    local state = {}
-    for _, part in ipairs(character:GetDescendants()) do
-        if part:IsA("BasePart") then
-            state[part] = part.CanCollide
-            part.CanCollide = enabled
-        end
-    end
-    return state
-end
-
-local function restoreCharacterCollisions(state)
-    for part, value in pairs(state) do
-        if part.Parent then
-            part.CanCollide = value
-        end
-    end
-end
-
-local function smoothMoveTo(character, root, targetCF, speed, cancelCheck)
+local function flyTo(character, root, targetCF, speed, cancelCheck)
     if not root or not root.Parent then return false end
-    if not character or not character.PrimaryPart then return false end
 
     local startPos = root.CFrame.Position
     local endPos = targetCF.Position
     local distance = (endPos - startPos).Magnitude
 
-    if distance < 0.5 then
-        pcall(function() character:PivotTo(targetCF) end)
+    if distance < 1 then
+        pcall(function() root.CFrame = targetCF end)
         return true
     end
 
@@ -1004,7 +951,15 @@ local function smoothMoveTo(character, root, targetCF, speed, cancelCheck)
     local duration = distance / speed
     local startTime = os.clock()
 
-    local collisionState = setCharacterCollisions(character, false)
+    -- Disable collisions
+    local collisionState = {}
+    for _, part in ipairs(character:GetDescendants()) do
+        if part:IsA("BasePart") then
+            collisionState[part] = part.CanCollide
+            part.CanCollide = false
+        end
+    end
+
     local success = true
 
     while true do
@@ -1014,27 +969,27 @@ local function smoothMoveTo(character, root, targetCF, speed, cancelCheck)
 
         local elapsed = os.clock() - startTime
         local alpha = math.min(elapsed / duration, 1)
-        local currentPos = startPos:Lerp(endPos, alpha)
+        local pos = startPos:Lerp(endPos, alpha)
 
-        pcall(function()
-            character:PivotTo(CFrame.new(currentPos, endPos))
-        end)
-
+        local cf = CFrame.new(pos, endPos)
+        pcall(function() root.CFrame = cf end)
         root.AssemblyLinearVelocity = Vector3.zero
         root.AssemblyAngularVelocity = Vector3.zero
 
         if alpha >= 1 then break end
-        RunService.Heartbeat:Wait()
+        task.wait()
     end
 
     if success then
-        pcall(function() character:PivotTo(targetCF) end)
+        pcall(function() root.CFrame = targetCF end)
         root.AssemblyLinearVelocity = Vector3.zero
         root.AssemblyAngularVelocity = Vector3.zero
     end
 
-    if character and character.Parent then
-        restoreCharacterCollisions(collisionState)
+    for part, val in pairs(collisionState) do
+        if part.Parent then
+            part.CanCollide = val
+        end
     end
 
     return success
@@ -1064,51 +1019,6 @@ Purge.MouseButton1Click:Connect(function()
 end)
 
 --==================================================
--- TOUCH ALL
---==================================================
-
-touchAllCollectibles = function()
-    local character = Player.Character
-    if not character then
-        FieldsFooter.Text = "Character not found."
-        return
-    end
-    local root = character:FindFirstChild("HumanoidRootPart")
-    if not root then
-        FieldsFooter.Text = "HumanoidRootPart not found."
-        return
-    end
-    local folder = Workspace:FindFirstChild("Collectibles")
-    if not folder then
-        FieldsFooter.Text = "Workspace.Collectibles not found."
-        return
-    end
-
-    local origin = root.CFrame
-    local kids = folder:GetChildren()
-
-    task.spawn(function()
-        for i, obj in ipairs(kids) do
-            if not obj.Parent then continue end
-            if not root.Parent then break end
-
-            local target = getTargetCFrame(obj)
-            if target then
-                FieldsFooter.Text = "Flying " .. i .. " / " .. #kids
-                smoothMoveTo(character, root, target, FlySpeed, nil)
-                task.wait(HOVER_AT_TARGET)
-            end
-        end
-        pcall(function() root.CFrame = origin end)
-        FieldsFooter.Text = "Touched all " .. #kids .. " objects."
-    end)
-end
-
-TouchAll.MouseButton1Click:Connect(function()
-    touchAllCollectibles()
-end)
-
---==================================================
 -- SCANNER
 --==================================================
 
@@ -1126,7 +1036,7 @@ local function teleportHome()
     if not character then return end
     local root = character:FindFirstChild("HumanoidRootPart")
     if not root or not root.Parent then return end
-    pcall(function() character:PivotTo(HomePosition) end)
+    pcall(function() root.CFrame = HomePosition end)
     root.AssemblyLinearVelocity = Vector3.zero
     root.AssemblyAngularVelocity = Vector3.zero
 end
@@ -1149,9 +1059,9 @@ local function scanPass(token)
 
     local targets = {}
     local scanned = 0
-    local matchedID = 0
     local hadDecal = 0
-    local hadNoCF = 0
+    local matchedID = 0
+    local sampleID = nil
 
     for _, object in ipairs(objects) do
         if not isRunning(token) then break end
@@ -1161,14 +1071,13 @@ local function scanPass(token)
             local id = getColorMapID(object)
             if id then
                 hadDecal = hadDecal + 1
+                if not sampleID then sampleID = id end
                 if SavedIDs[id] then
                     matchedID = matchedID + 1
                     if intersectsFlowerZone(object, zones) then
                         local cf = getTargetCFrame(object)
                         if cf then
                             table.insert(targets, {object = object, cf = cf})
-                        else
-                            hadNoCF = hadNoCF + 1
                         end
                     end
                 end
@@ -1176,10 +1085,15 @@ local function scanPass(token)
         end
     end
 
+    print(string.format(
+        "[Sprout] scan=%d decal=%d id=%d zones=%d targets=%d",
+        scanned, hadDecal, matchedID, #zones, #targets
+    ))
+
     if #targets == 0 then
         Footer.Text = string.format(
-            "None | scan %d, decal %d, id %d, noCF %d",
-            scanned, hadDecal, matchedID, hadNoCF
+            "None | scan %d, decal %d, id %d, zones %d | ex: %s",
+            scanned, hadDecal, matchedID, #zones, sampleID or "?"
         )
         return
     end
@@ -1193,7 +1107,7 @@ local function scanPass(token)
         if not entry.object.Parent then continue end
 
         Footer.Text = "Flying " .. index .. " / " .. #targets
-        smoothMoveTo(character, root, entry.cf, FlySpeed, function()
+        flyTo(character, root, entry.cf, FlySpeed, function()
             return isRunning(token)
         end)
         task.wait(HOVER_AT_TARGET)
@@ -1299,4 +1213,4 @@ else
     Footer.Text = "Ready."
 end
 
-print("[Sprout Collector] loaded (recursive BackDecal + folder support).")
+print("[Sprout Collector] loaded.")
