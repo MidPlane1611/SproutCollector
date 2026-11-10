@@ -1,6 +1,6 @@
 --==================================================
--- SPR0UT COLLECTOR
--- persistent config + field selection + diagnostics
+-- SPR0UT COLLECTOR — final build
+-- compact GUI + exact teleport + purge + touch all
 --==================================================
 
 local Players = game:GetService("Players")
@@ -16,8 +16,12 @@ local PlayerGui = Player:WaitForChild("PlayerGui")
 --==================================================
 
 local SCAN_INTERVAL = 1
-local TELEPORT_DELAY = 0.3
-local TELEPORT_Y_OFFSET = 3
+local TELEPORT_DELAY = 0.1
+local TELEPORT_Y_OFFSET = 0   -- 0 = точно в объект, без подъёма
+local PURGE_ON_START = false
+
+-- Поля, которые при первом запуске выключены.
+-- Если не уверен — поставь: local EXCLUDED_ZONES = {}
 
 local EXCLUDED_ZONES = {
     ["Ant Field"] = true,
@@ -35,16 +39,14 @@ local EXCLUDED_ZONES = {
 local oldGui = PlayerGui:FindFirstChild("SproutCollectorGUI")
 if oldGui then oldGui:Destroy() end
 
---==================================================
--- PERSISTENCE (forward declarations)
---==================================================
-
 local SAVE_FOLDER = "SproutCollector"
 local SAVE_FILE = SAVE_FOLDER .. "/config.json"
 
 local saveConfig
 local loadedData
 local refreshFieldsList
+local purgeCollectibles
+local touchAllCollectibles
 
 --==================================================
 -- GUI HELPERS
@@ -72,7 +74,7 @@ local function stroke(object, color, transparency)
 end
 
 --==================================================
--- MAIN GUI
+-- MAIN GUI (280 x 400)
 --==================================================
 
 local ScreenGui = create("ScreenGui", {
@@ -83,13 +85,13 @@ local ScreenGui = create("ScreenGui", {
 }, PlayerGui)
 
 local Main = create("Frame", {
-    Size = UDim2.fromOffset(320, 440),
-    Position = UDim2.new(0.5, -160, 0.5, -220),
+    Size = UDim2.fromOffset(280, 400),
+    Position = UDim2.new(0.5, -140, 0.5, -200),
     BackgroundColor3 = Color3.fromRGB(20, 23, 31),
     BorderSizePixel = 0
 }, ScreenGui)
 
-round(Main, 12)
+round(Main, 10)
 stroke(Main, Color3.fromRGB(65, 75, 95))
 
 --==================================================
@@ -97,49 +99,49 @@ stroke(Main, Color3.fromRGB(65, 75, 95))
 --==================================================
 
 local Header = create("Frame", {
-    Size = UDim2.new(1, 0, 0, 45),
+    Size = UDim2.new(1, 0, 0, 40),
     BackgroundColor3 = Color3.fromRGB(28, 33, 44),
     BorderSizePixel = 0
 }, Main)
-round(Header, 12)
+round(Header, 10)
 
 create("Frame", {
-    Size = UDim2.new(1, 0, 0, 12),
-    Position = UDim2.new(0, 0, 1, -12),
+    Size = UDim2.new(1, 0, 0, 10),
+    Position = UDim2.new(0, 0, 1, -10),
     BackgroundColor3 = Header.BackgroundColor3,
     BorderSizePixel = 0
 }, Header)
 
 create("TextLabel", {
-    Size = UDim2.new(1, -90, 1, 0),
-    Position = UDim2.fromOffset(14, 0),
+    Size = UDim2.new(1, -80, 1, 0),
+    Position = UDim2.fromOffset(12, 0),
     BackgroundTransparency = 1,
     Text = "SPROUT COLLECTOR",
     TextColor3 = Color3.fromRGB(235, 240, 250),
-    TextSize = 15,
+    TextSize = 13,
     Font = Enum.Font.GothamBold,
     TextXAlignment = Enum.TextXAlignment.Left
 }, Header)
 
 local Minimize = create("TextButton", {
-    Size = UDim2.fromOffset(28, 28),
-    Position = UDim2.new(1, -38, 0, 8),
+    Size = UDim2.fromOffset(24, 24),
+    Position = UDim2.new(1, -32, 0, 8),
     BackgroundColor3 = Color3.fromRGB(48, 57, 73),
     Text = "−",
     TextColor3 = Color3.new(1, 1, 1),
-    TextSize = 20,
+    TextSize = 16,
     Font = Enum.Font.GothamBold,
     AutoButtonColor = true
 }, Header)
-round(Minimize, 7)
+round(Minimize, 6)
 
 --==================================================
 -- TAB BAR
 --==================================================
 
 local TabBar = create("Frame", {
-    Size = UDim2.new(1, 0, 0, 32),
-    Position = UDim2.fromOffset(0, 45),
+    Size = UDim2.new(1, 0, 0, 28),
+    Position = UDim2.fromOffset(0, 40),
     BackgroundColor3 = Color3.fromRGB(24, 28, 37),
     BorderSizePixel = 0
 }, Main)
@@ -150,11 +152,11 @@ local IDsTab = create("TextButton", {
     BackgroundColor3 = Color3.fromRGB(65, 115, 210),
     Text = "IDS",
     TextColor3 = Color3.new(1, 1, 1),
-    TextSize = 12,
+    TextSize = 11,
     Font = Enum.Font.GothamBold,
     AutoButtonColor = false
 }, TabBar)
-round(IDsTab, 6)
+round(IDsTab, 5)
 
 local FieldsTab = create("TextButton", {
     Size = UDim2.new(0.5, -3, 1, -6),
@@ -162,98 +164,94 @@ local FieldsTab = create("TextButton", {
     BackgroundColor3 = Color3.fromRGB(42, 50, 65),
     Text = "FIELDS",
     TextColor3 = Color3.fromRGB(200, 210, 225),
-    TextSize = 12,
+    TextSize = 11,
     Font = Enum.Font.GothamBold,
     AutoButtonColor = false
 }, TabBar)
-round(FieldsTab, 6)
+round(FieldsTab, 5)
 
 --==================================================
 -- CONTENT
 --==================================================
 
 local Content = create("Frame", {
-    Size = UDim2.new(1, -24, 1, -95),
-    Position = UDim2.fromOffset(12, 83),
+    Size = UDim2.new(1, -16, 1, -76),
+    Position = UDim2.fromOffset(8, 72),
     BackgroundTransparency = 1
 }, Main)
 
---==================================================
--- STATUS BUTTON
---==================================================
-
 local Status = create("TextButton", {
-    Size = UDim2.new(1, 0, 0, 38),
+    Size = UDim2.new(1, 0, 0, 30),
     BackgroundColor3 = Color3.fromRGB(150, 45, 50),
     Text = "OFF",
     TextColor3 = Color3.new(1, 1, 1),
-    TextSize = 15,
+    TextSize = 13,
     Font = Enum.Font.GothamBold,
     AutoButtonColor = false
 }, Content)
-round(Status, 8)
+round(Status, 7)
 
 --==================================================
 -- ID PAGE
 --==================================================
 
 local IDPage = create("Frame", {
-    Size = UDim2.new(1, 0, 1, -46),
-    Position = UDim2.fromOffset(0, 46),
+    Size = UDim2.new(1, 0, 1, -36),
+    Position = UDim2.fromOffset(0, 36),
     BackgroundTransparency = 1,
     Visible = true
 }, Content)
 
 local Input = create("TextBox", {
-    Size = UDim2.new(1, -85, 0, 35),
+    Size = UDim2.new(1, -72, 0, 28),
     BackgroundColor3 = Color3.fromRGB(32, 38, 50),
     TextColor3 = Color3.fromRGB(240, 240, 240),
     PlaceholderColor3 = Color3.fromRGB(125, 135, 155),
-    PlaceholderText = "Enter asset ID...",
+    PlaceholderText = "Enter ID...",
     Text = "",
-    TextSize = 13,
+    TextSize = 12,
     Font = Enum.Font.Gotham,
     ClearTextOnFocus = false
 }, IDPage)
-round(Input, 7)
+round(Input, 6)
 stroke(Input, Color3.fromRGB(55, 65, 82))
 
 local Add = create("TextButton", {
-    Size = UDim2.new(0, 75, 0, 35),
-    Position = UDim2.new(1, -75, 0, 0),
+    Size = UDim2.new(0, 64, 0, 28),
+    Position = UDim2.new(1, -64, 0, 0),
     BackgroundColor3 = Color3.fromRGB(65, 115, 210),
     Text = "ADD",
     TextColor3 = Color3.new(1, 1, 1),
-    TextSize = 13,
+    TextSize = 12,
     Font = Enum.Font.GothamBold
 }, IDPage)
-round(Add, 7)
+round(Add, 6)
 
 create("TextLabel", {
-    Size = UDim2.new(1, 0, 0, 25),
-    Position = UDim2.fromOffset(0, 42),
+    Size = UDim2.new(1, 0, 0, 20),
+    Position = UDim2.fromOffset(0, 32),
     BackgroundTransparency = 1,
     Text = "SAVED IDS",
     TextColor3 = Color3.fromRGB(155, 170, 195),
-    TextSize = 11,
+    TextSize = 10,
     Font = Enum.Font.GothamBold,
     TextXAlignment = Enum.TextXAlignment.Left
 }, IDPage)
 
 local Counter = create("TextLabel", {
-    Size = UDim2.fromOffset(65, 25),
-    Position = UDim2.new(1, -65, 0, 42),
+    Size = UDim2.fromOffset(60, 20),
+    Position = UDim2.new(1, -60, 0, 32),
     BackgroundTransparency = 1,
     Text = "0 IDs",
     TextColor3 = Color3.fromRGB(110, 170, 255),
-    TextSize = 11,
+    TextSize = 10,
     Font = Enum.Font.GothamBold,
     TextXAlignment = Enum.TextXAlignment.Right
 }, IDPage)
 
 local List = create("ScrollingFrame", {
-    Size = UDim2.new(1, 0, 0, 175),
-    Position = UDim2.fromOffset(0, 68),
+    Size = UDim2.new(1, 0, 0, 140),
+    Position = UDim2.fromOffset(0, 54),
     BackgroundColor3 = Color3.fromRGB(27, 32, 42),
     BorderSizePixel = 0,
     ScrollBarThickness = 4,
@@ -261,27 +259,27 @@ local List = create("ScrollingFrame", {
     CanvasSize = UDim2.new(0, 0, 0, 0),
     AutomaticCanvasSize = Enum.AutomaticSize.Y
 }, IDPage)
-round(List, 8)
+round(List, 7)
 
 create("UIListLayout", {
-    Padding = UDim.new(0, 5),
+    Padding = UDim.new(0, 4),
     SortOrder = Enum.SortOrder.LayoutOrder
 }, List)
 
 create("UIPadding", {
-    PaddingTop = UDim.new(0, 6),
-    PaddingBottom = UDim.new(0, 6),
-    PaddingLeft = UDim.new(0, 6),
-    PaddingRight = UDim.new(0, 6)
+    PaddingTop = UDim.new(0, 5),
+    PaddingBottom = UDim.new(0, 5),
+    PaddingLeft = UDim.new(0, 5),
+    PaddingRight = UDim.new(0, 5)
 }, List)
 
 local Footer = create("TextLabel", {
-    Size = UDim2.new(1, 0, 0, 46),
-    Position = UDim2.new(0, 0, 1, -46),
+    Size = UDim2.new(1, 0, 0, 30),
+    Position = UDim2.new(0, 0, 1, -30),
     BackgroundTransparency = 1,
     Text = "Waiting...",
     TextColor3 = Color3.fromRGB(135, 150, 175),
-    TextSize = 10,
+    TextSize = 9,
     Font = Enum.Font.Gotham,
     TextWrapped = true,
     TextXAlignment = Enum.TextXAlignment.Left
@@ -292,26 +290,26 @@ local Footer = create("TextLabel", {
 --==================================================
 
 local FieldsPage = create("Frame", {
-    Size = UDim2.new(1, 0, 1, -46),
-    Position = UDim2.fromOffset(0, 46),
+    Size = UDim2.new(1, 0, 1, -36),
+    Position = UDim2.fromOffset(0, 36),
     BackgroundTransparency = 1,
     Visible = false
 }, Content)
 
 create("TextLabel", {
-    Size = UDim2.new(1, 0, 0, 25),
+    Size = UDim2.new(1, 0, 0, 20),
     Position = UDim2.fromOffset(0, 0),
     BackgroundTransparency = 1,
     Text = "FIELDS",
     TextColor3 = Color3.fromRGB(155, 170, 195),
-    TextSize = 11,
+    TextSize = 10,
     Font = Enum.Font.GothamBold,
     TextXAlignment = Enum.TextXAlignment.Left
 }, FieldsPage)
 
 local FieldsList = create("ScrollingFrame", {
-    Size = UDim2.new(1, 0, 0, 215),
-    Position = UDim2.fromOffset(0, 30),
+    Size = UDim2.new(1, 0, 0, 110),
+    Position = UDim2.fromOffset(0, 22),
     BackgroundColor3 = Color3.fromRGB(27, 32, 42),
     BorderSizePixel = 0,
     ScrollBarThickness = 4,
@@ -319,27 +317,49 @@ local FieldsList = create("ScrollingFrame", {
     CanvasSize = UDim2.new(0, 0, 0, 0),
     AutomaticCanvasSize = Enum.AutomaticSize.Y
 }, FieldsPage)
-round(FieldsList, 8)
+round(FieldsList, 7)
 
 create("UIListLayout", {
-    Padding = UDim.new(0, 5),
+    Padding = UDim.new(0, 4),
     SortOrder = Enum.SortOrder.LayoutOrder
 }, FieldsList)
 
 create("UIPadding", {
-    PaddingTop = UDim.new(0, 6),
-    PaddingBottom = UDim.new(0, 6),
-    PaddingLeft = UDim.new(0, 6),
-    PaddingRight = UDim.new(0, 6)
+    PaddingTop = UDim.new(0, 5),
+    PaddingBottom = UDim.new(0, 5),
+    PaddingLeft = UDim.new(0, 5),
+    PaddingRight = UDim.new(0, 5)
 }, FieldsList)
 
+local TouchAll = create("TextButton", {
+    Size = UDim2.new(1, 0, 0, 26),
+    Position = UDim2.fromOffset(0, 138),
+    BackgroundColor3 = Color3.fromRGB(65, 115, 210),
+    Text = "TOUCH ALL",
+    TextColor3 = Color3.new(1, 1, 1),
+    TextSize = 10,
+    Font = Enum.Font.GothamBold
+}, FieldsPage)
+round(TouchAll, 5)
+
+local Purge = create("TextButton", {
+    Size = UDim2.new(1, 0, 0, 26),
+    Position = UDim2.fromOffset(0, 168),
+    BackgroundColor3 = Color3.fromRGB(160, 60, 40),
+    Text = "PURGE (local)",
+    TextColor3 = Color3.new(1, 1, 1),
+    TextSize = 10,
+    Font = Enum.Font.GothamBold
+}, FieldsPage)
+round(Purge, 5)
+
 local FieldsFooter = create("TextLabel", {
-    Size = UDim2.new(1, 0, 0, 46),
-    Position = UDim2.new(0, 0, 1, -46),
+    Size = UDim2.new(1, 0, 0, 30),
+    Position = UDim2.new(0, 0, 1, -30),
     BackgroundTransparency = 1,
     Text = "",
     TextColor3 = Color3.fromRGB(135, 150, 175),
-    TextSize = 10,
+    TextSize = 9,
     Font = Enum.Font.Gotham,
     TextWrapped = true,
     TextXAlignment = Enum.TextXAlignment.Left
@@ -396,10 +416,10 @@ Minimize.MouseButton1Click:Connect(function()
     Content.Visible = not minimized
     TabBar.Visible = not minimized
     if minimized then
-        Main.Size = UDim2.fromOffset(320, 45)
+        Main.Size = UDim2.fromOffset(280, 40)
         Minimize.Text = "+"
     else
-        Main.Size = UDim2.fromOffset(320, 440)
+        Main.Size = UDim2.fromOffset(280, 400)
         Minimize.Text = "−"
     end
     saveConfig()
@@ -495,7 +515,7 @@ saveConfig = function()
 end
 
 --==================================================
--- ID LIST RENDER
+-- ID LIST
 --==================================================
 
 local function updateCounter()
@@ -508,32 +528,32 @@ local function refreshList()
     end
     for index, id in ipairs(IDOrder) do
         local Row = create("Frame", {
-            Size = UDim2.new(1, -2, 0, 32),
+            Size = UDim2.new(1, -2, 0, 26),
             BackgroundColor3 = Color3.fromRGB(37, 44, 57),
             BorderSizePixel = 0,
             LayoutOrder = index
         }, List)
-        round(Row, 6)
+        round(Row, 5)
         create("TextLabel", {
-            Size = UDim2.new(1, -48, 1, 0),
-            Position = UDim2.fromOffset(9, 0),
+            Size = UDim2.new(1, -40, 1, 0),
+            Position = UDim2.fromOffset(8, 0),
             BackgroundTransparency = 1,
             Text = id,
             TextColor3 = Color3.fromRGB(225, 232, 245),
-            TextSize = 12,
+            TextSize = 11,
             Font = Enum.Font.Gotham,
             TextXAlignment = Enum.TextXAlignment.Left
         }, Row)
         local Remove = create("TextButton", {
-            Size = UDim2.fromOffset(28, 25),
-            Position = UDim2.new(1, -32, 0.5, -12),
+            Size = UDim2.fromOffset(24, 20),
+            Position = UDim2.new(1, -28, 0.5, -10),
             BackgroundColor3 = Color3.fromRGB(145, 48, 55),
             Text = "X",
             TextColor3 = Color3.new(1, 1, 1),
-            TextSize = 11,
+            TextSize = 10,
             Font = Enum.Font.GothamBold
         }, Row)
-        round(Remove, 5)
+        round(Remove, 4)
         Remove.MouseButton1Click:Connect(function()
             SavedIDs[id] = nil
             for i, savedID in ipairs(IDOrder) do
@@ -550,7 +570,7 @@ local function refreshList()
 end
 
 --==================================================
--- FIELDS LIST RENDER
+-- FIELDS LIST
 --==================================================
 
 refreshFieldsList = function()
@@ -578,37 +598,37 @@ refreshFieldsList = function()
     for index, name in ipairs(names) do
         local enabled = isFieldEnabled(name)
         local Row = create("Frame", {
-            Size = UDim2.new(1, -2, 0, 32),
+            Size = UDim2.new(1, -2, 0, 26),
             BackgroundColor3 = Color3.fromRGB(37, 44, 57),
             BorderSizePixel = 0,
             LayoutOrder = index
         }, FieldsList)
-        round(Row, 6)
+        round(Row, 5)
 
         create("TextLabel", {
-            Size = UDim2.new(1, -68, 1, 0),
-            Position = UDim2.fromOffset(9, 0),
+            Size = UDim2.new(1, -58, 1, 0),
+            Position = UDim2.fromOffset(8, 0),
             BackgroundTransparency = 1,
             Text = name,
             TextColor3 = Color3.fromRGB(225, 232, 245),
-            TextSize = 12,
+            TextSize = 11,
             Font = Enum.Font.Gotham,
             TextXAlignment = Enum.TextXAlignment.Left,
             TextTruncate = Enum.TextTruncate.AtEnd
         }, Row)
 
         local Toggle = create("TextButton", {
-            Size = UDim2.fromOffset(55, 24),
-            Position = UDim2.new(1, -60, 0.5, -12),
+            Size = UDim2.fromOffset(48, 20),
+            Position = UDim2.new(1, -52, 0.5, -10),
             BackgroundColor3 = enabled
                 and Color3.fromRGB(35, 145, 85)
                 or Color3.fromRGB(120, 45, 50),
             Text = enabled and "ON" or "OFF",
             TextColor3 = Color3.new(1, 1, 1),
-            TextSize = 11,
+            TextSize = 10,
             Font = Enum.Font.GothamBold
         }, Row)
-        round(Toggle, 5)
+        round(Toggle, 4)
 
         Toggle.MouseButton1Click:Connect(function()
             local nowEnabled = not isFieldEnabled(name)
@@ -617,13 +637,6 @@ refreshFieldsList = function()
                 and Color3.fromRGB(35, 145, 85)
                 or Color3.fromRGB(120, 45, 50)
             Toggle.Text = nowEnabled and "ON" or "OFF"
-
-            local enabledCount = 0
-            for _, n in ipairs(names) do
-                if isFieldEnabled(n) then enabledCount = enabledCount + 1 end
-            end
-            FieldsFooter.Text = enabledCount .. " / " .. #names .. " fields enabled."
-
             saveConfig()
         end)
     end
@@ -632,11 +645,11 @@ refreshFieldsList = function()
     for _, name in ipairs(names) do
         if isFieldEnabled(name) then enabledCount = enabledCount + 1 end
     end
-    FieldsFooter.Text = enabledCount .. " / " .. #names .. " fields enabled."
+    FieldsFooter.Text = enabledCount .. " / " .. #names .. " enabled."
 end
 
 --==================================================
--- TAB SWITCHING
+-- TABS
 --==================================================
 
 IDsTab.MouseButton1Click:Connect(function()
@@ -659,7 +672,7 @@ FieldsTab.MouseButton1Click:Connect(function()
 end)
 
 --==================================================
--- INPUT / ADD
+-- INPUT
 --==================================================
 
 Input:GetPropertyChangedSignal("Text"):Connect(function()
@@ -688,7 +701,7 @@ Add.MouseButton1Click:Connect(function()
 end)
 
 --==================================================
--- OBJECT BOUNDS
+-- BOUNDS
 --==================================================
 
 local function getBounds(object)
@@ -766,11 +779,9 @@ local function intersectsFlowerZone(object, zones)
 end
 
 --==================================================
--- COLOR MAP ID (improved)
+-- COLOR MAP ID
 --==================================================
 
--- Извлекает первое числовое значение из строки вида
--- "rbxassetid://12345" → "12345"
 local function extractID(value)
     if value == nil then return nil end
     if type(value) ~= "string" then
@@ -789,7 +800,6 @@ local function getColorMapID(object)
     local backDecal = object:FindFirstChild("BackDecal")
     if not backDecal then return nil end
 
-    -- Пробуем несколько свойств по очереди
     local properties = { "ColorMap", "Texture", "SoundId", "MeshId", "Image" }
 
     for _, prop in ipairs(properties) do
@@ -808,7 +818,7 @@ local function getColorMapID(object)
 end
 
 --==================================================
--- TELEPORT HELPERS
+-- TELEPORT (exact, no Y lift)
 --==================================================
 
 local function getTargetCFrame(object)
@@ -828,13 +838,14 @@ local function teleportTo(character, root, object)
     local target = getTargetCFrame(object)
     if not target then return false end
 
-    -- Поднимаем на TELEPORT_Y_OFFSET, чтобы не уйти под пол
-    local liftedCFrame = target + Vector3.new(0, TELEPORT_Y_OFFSET, 0)
+    local finalCF = target
+    if TELEPORT_Y_OFFSET ~= 0 then
+        finalCF = target + Vector3.new(0, TELEPORT_Y_OFFSET, 0)
+    end
 
-    -- Сначала PivotTo (надёжнее для персонажа)
     if character and character.PrimaryPart then
         local ok = pcall(function()
-            character:PivotTo(liftedCFrame)
+            character:PivotTo(finalCF)
         end)
         if ok then
             root.AssemblyLinearVelocity = Vector3.zero
@@ -843,9 +854,8 @@ local function teleportTo(character, root, object)
         end
     end
 
-    -- Фолбэк на CFrame
     local ok2 = pcall(function()
-        root.CFrame = liftedCFrame
+        root.CFrame = finalCF
     end)
     if ok2 then
         root.AssemblyLinearVelocity = Vector3.zero
@@ -855,6 +865,81 @@ local function teleportTo(character, root, object)
 
     return false
 end
+
+--==================================================
+-- PURGE
+--==================================================
+
+purgeCollectibles = function()
+    local folder = Workspace:FindFirstChild("Collectibles")
+    if not folder then
+        FieldsFooter.Text = "Workspace.Collectibles not found."
+        return 0
+    end
+    local count = 0
+    for _, child in ipairs(folder:GetChildren()) do
+        pcall(function() child:Destroy() end)
+        count = count + 1
+    end
+    FieldsFooter.Text = "Destroyed " .. count .. " locally."
+    return count
+end
+
+Purge.MouseButton1Click:Connect(function()
+    purgeCollectibles()
+end)
+
+--==================================================
+-- TOUCH ALL
+--==================================================
+
+touchAllCollectibles = function()
+    local character = Player.Character
+    if not character then
+        FieldsFooter.Text = "Character not found."
+        return
+    end
+    local root = character:FindFirstChild("HumanoidRootPart")
+    if not root then
+        FieldsFooter.Text = "HumanoidRootPart not found."
+        return
+    end
+    local folder = Workspace:FindFirstChild("Collectibles")
+    if not folder then
+        FieldsFooter.Text = "Workspace.Collectibles not found."
+        return
+    end
+
+    local origin = root.CFrame
+    local kids = folder:GetChildren()
+
+    task.spawn(function()
+        for i, obj in ipairs(kids) do
+            if not obj.Parent then continue end
+            local target
+            if obj:IsA("BasePart") then
+                target = obj.CFrame
+            elseif obj:IsA("Model") then
+                target = obj:GetPivot()
+            end
+            if target then
+                if character.PrimaryPart then
+                    pcall(function() character:PivotTo(target) end)
+                end
+                root.AssemblyLinearVelocity = Vector3.zero
+                root.AssemblyAngularVelocity = Vector3.zero
+                FieldsFooter.Text = "Touching " .. i .. " / " .. #kids
+                task.wait(TELEPORT_DELAY)
+            end
+        end
+        pcall(function() root.CFrame = origin end)
+        FieldsFooter.Text = "Touched all " .. #kids .. " objects."
+    end)
+end
+
+TouchAll.MouseButton1Click:Connect(function()
+    touchAllCollectibles()
+end)
 
 --==================================================
 -- SCANNER
@@ -911,7 +996,6 @@ local function scanPass(token)
 
     for _, object in ipairs(objects) do
         if not isRunning(token) then break end
-
         scanned = scanned + 1
 
         if object.Name == "C" then
@@ -926,7 +1010,7 @@ local function scanPass(token)
     end
 
     Footer.Text = string.format(
-        "Scanned %d, ID matched %d, in zones %d",
+        "Scanned %d, ID %d, zones %d",
         scanned, matchedID, #targets
     )
 
@@ -936,9 +1020,7 @@ local function scanPass(token)
         if not root.Parent then break end
 
         if teleportTo(character, root, object) then
-            Footer.Text =
-                "Visiting Sprout " ..
-                tostring(index) .. " / " .. tostring(#targets)
+            Footer.Text = "Visiting " .. index .. " / " .. #targets
             task.wait(TELEPORT_DELAY)
         end
     end
@@ -956,10 +1038,10 @@ end
 
 local function updateStatus()
     if Enabled then
-        Status.Text = "●  COLLECTOR ACTIVE"
+        Status.Text = "●  ACTIVE"
         Status.BackgroundColor3 = Color3.fromRGB(35, 145, 85)
     else
-        Status.Text = "●  COLLECTOR OFF"
+        Status.Text = "●  OFF"
         Status.BackgroundColor3 = Color3.fromRGB(150, 45, 50)
     end
 end
@@ -971,7 +1053,7 @@ Status.MouseButton1Click:Connect(function()
 
     if Enabled then
         local token = RunToken
-        Footer.Text = "Starting scanner..."
+        Footer.Text = "Starting..."
         task.spawn(function()
             while isRunning(token) do
                 local started = os.clock()
@@ -979,7 +1061,7 @@ Status.MouseButton1Click:Connect(function()
                 if not success then
                     warn("[Sprout Collector]", errorMessage)
                     restorePosition(ActiveCycle)
-                    Footer.Text = "Scanner error. Check console."
+                    Footer.Text = "Error. Check console."
                 end
                 local remaining = SCAN_INTERVAL - (os.clock() - started)
                 if remaining > 0 and isRunning(token) then
@@ -989,7 +1071,7 @@ Status.MouseButton1Click:Connect(function()
         end)
     else
         restorePosition(ActiveCycle)
-        Footer.Text = "Collector stopped."
+        Footer.Text = "Stopped."
     end
 end)
 
@@ -1011,7 +1093,7 @@ if loadedData then
         minimized = true
         Content.Visible = false
         TabBar.Visible = false
-        Main.Size = UDim2.fromOffset(320, 45)
+        Main.Size = UDim2.fromOffset(280, 40)
         Minimize.Text = "+"
     end
 end
@@ -1020,13 +1102,17 @@ end
 -- INITIALIZE
 --==================================================
 
+if PURGE_ON_START then
+    purgeCollectibles()
+end
+
 updateStatus()
 refreshList()
 
 if #IDOrder > 0 then
-    Footer.Text = "Loaded " .. tostring(#IDOrder) .. " saved ID(s)."
+    Footer.Text = "Loaded " .. #IDOrder .. " ID(s)."
 else
-    Footer.Text = "Ready. Add Sprout IDs to begin."
+    Footer.Text = "Ready."
 end
 
-print("[Sprout Collector] GUI loaded successfully.")
+print("[Sprout Collector] loaded.")
