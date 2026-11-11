@@ -10,14 +10,7 @@ local AUTO_CLEAR = true
 local SPEED_MIN = 20
 local SPEED_MAX = 800
 local FlySpeed = 60
-local EXCLUDED_ZONES = {
-    ["Ant Field"] = true,
-    ["Blue Brick Field"] = true,
-    ["Hub Field"] = true,
-    ["Mixed Brick Field"] = true,
-    ["Red Brick Field"] = true,
-    ["White Brick Field"] = true
-}
+local IgnoreZones = false
 local FallbackItems = {
     ["Basic Egg"] = "1471846464", ["Silver Egg"] = "1471848094", ["Gold Egg"] = "1471849394",
     ["Royal Jelly"] = "1471882621", ["Mythic Egg"] = "4520739302", ["Diamond Egg"] = "1471850677",
@@ -168,7 +161,8 @@ local Content = create("Frame", {
     BackgroundTransparency = 1
 }, Main)
 local Status = create("TextButton", {
-    Size = UDim2.new(1, 0, 0, 30),
+    Size = UDim2.new(0.5, -3, 0, 30),
+    Position = UDim2.fromOffset(0, 0),
     BackgroundColor3 = Color3.fromRGB(150, 45, 50),
     Text = "OFF",
     TextColor3 = Color3.new(1, 1, 1),
@@ -176,6 +170,16 @@ local Status = create("TextButton", {
     Font = Enum.Font.GothamBold
 }, Content)
 round(Status, 7)
+local IgnoreBtn = create("TextButton", {
+    Size = UDim2.new(0.5, -3, 0, 30),
+    Position = UDim2.new(0.5, 3, 0, 0),
+    BackgroundColor3 = Color3.fromRGB(60, 60, 70),
+    Text = "IGNORE ZONES: OFF",
+    TextColor3 = Color3.new(1, 1, 1),
+    TextSize = 10,
+    Font = Enum.Font.GothamBold
+}, Content)
+round(IgnoreBtn, 7)
 local SpeedControl = create("Frame", {
     Size = UDim2.new(1, 0, 0, 22),
     Position = UDim2.fromOffset(0, 34),
@@ -339,13 +343,24 @@ Minimize.MouseButton1Click:Connect(function()
     end
     if saveConfig then saveConfig() end
 end)
+IgnoreBtn.MouseButton1Click:Connect(function()
+    IgnoreZones = not IgnoreZones
+    if IgnoreZones then
+        IgnoreBtn.Text = "IGNORE ZONES: ON"
+        IgnoreBtn.BackgroundColor3 = Color3.fromRGB(65, 115, 210)
+    else
+        IgnoreBtn.Text = "IGNORE ZONES: OFF"
+        IgnoreBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
+    end
+    saveConfig()
+end)
 local SelectedNames = {}
 local SelectedIDs = {}
 local fieldSelection = {}
 local function isFieldEnabled(name)
     local explicit = fieldSelection[name]
     if explicit ~= nil then return explicit end
-    return not EXCLUDED_ZONES[name]
+    return true
 end
 if type(isfile) == "function" and type(readfile) == "function" then
     if isfile(SAVE_FILE) then
@@ -377,6 +392,11 @@ if loadedData then
     if type(loadedData.speed) == "number" then 
         FlySpeed = math.clamp(math.floor(loadedData.speed), SPEED_MIN, SPEED_MAX) 
     end
+    if loadedData.ignoreZones == true then
+        IgnoreZones = true
+        IgnoreBtn.Text = "IGNORE ZONES: ON"
+        IgnoreBtn.BackgroundColor3 = Color3.fromRGB(65, 115, 210)
+    end
 end
 saveConfig = function()
     if type(writefile) ~= "function" then return end
@@ -393,6 +413,7 @@ saveConfig = function()
         items = itemsList, 
         fields = fieldSelection, 
         speed = FlySpeed,
+        ignoreZones = IgnoreZones,
         guiPosition = { 
             xScale = Main.Position.X.Scale, 
             xOffset = Main.Position.X.Offset, 
@@ -724,7 +745,7 @@ local function scanPass(token)
             local id = getColorMapID(object)
             if id and SelectedIDs[id] then
                 matchedID = matchedID + 1
-                if intersectsFlowerZone(object, zones) then
+                if IgnoreZones or intersectsFlowerZone(object, zones) then
                     local cf = getTargetCFrame(object)
                     if cf then 
                         table.insert(targets, {object = object, cf = cf}) 
