@@ -6,16 +6,16 @@ local TweenService = game:GetService("TweenService")
 local Player = Players.LocalPlayer
 local PlayerGui = Player:WaitForChild("PlayerGui")
 local SCAN_INTERVAL = 1
-local HOLD_MIN = 0.1
-local HOLD_MAX = 2.0
 local HOVER_AT_TARGET = 0.3
 local AUTO_CLEAR = true
 local SPEED_MIN = 20
 local SPEED_MAX = 800
 local FlySpeed = 60
-local SETTINGS_PANEL_HEIGHT = 110
+local SETTINGS_PANEL_HEIGHT = 76
 local MAIN_BASE_HEIGHT = 340
 local settingsOpen = false
+local SETTINGS_TWEEN_INFO = TweenInfo.new(0.45, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+local MINIMIZE_TWEEN_INFO = TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 local FallbackItems = {
     ["Basic Egg"] = "1471846464", ["Silver Egg"] = "1471848094", ["Gold Egg"] = "1471849394",
     ["Royal Jelly"] = "1471882621", ["Mythic Egg"] = "4520739302", ["Diamond Egg"] = "1471850677",
@@ -52,14 +52,16 @@ local loadedData
 local refreshFieldsList
 local purgeCollectibles
 local refreshSpeedUI
-local refreshHoldUI
 local refreshItemsList
 local ItemDatabase = {}
 local IDToName = {}
+local SortedItemNames = {}
 for name, id in pairs(FallbackItems) do
     ItemDatabase[name] = id
     IDToName[id] = name
+    table.insert(SortedItemNames, name)
 end
+table.sort(SortedItemNames)
 local function isFinite(val)
     return val == val and val ~= math.huge and val ~= -math.huge
 end
@@ -211,47 +213,6 @@ local SpeedButton = create("TextButton", {
     Text = "",
     ZIndex = 3
 }, SpeedBar)
-local HoldControl = create("Frame", {
-    Size = UDim2.new(1, -16, 0, 22),
-    Position = UDim2.fromOffset(8, 76),
-    BackgroundTransparency = 1
-}, SettingsPanel)
-local HoldLabel = create("TextLabel", {
-    Size = UDim2.new(1, 0, 0, 10),
-    BackgroundTransparency = 1,
-    Text = "Global hold: " .. HOVER_AT_TARGET .. "s",
-    TextColor3 = Color3.fromRGB(160, 175, 200),
-    TextSize = 9,
-    Font = Enum.Font.Gotham,
-    TextXAlignment = Enum.TextXAlignment.Left
-}, HoldControl)
-local HoldBar = create("Frame", {
-    Size = UDim2.new(1, 0, 0, 8),
-    Position = UDim2.fromOffset(0, 12),
-    BackgroundColor3 = Color3.fromRGB(40, 48, 62),
-    BorderSizePixel = 0
-}, HoldControl)
-round(HoldBar, 4)
-local HoldFill = create("Frame", {
-    Size = UDim2.new((HOVER_AT_TARGET - HOLD_MIN) / (HOLD_MAX - HOLD_MIN), 0, 1, 0),
-    BackgroundColor3 = Color3.fromRGB(65, 115, 210),
-    BorderSizePixel = 0
-}, HoldBar)
-round(HoldFill, 4)
-local HoldHandle = create("Frame", {
-    Size = UDim2.fromOffset(10, 14),
-    Position = UDim2.new((HOVER_AT_TARGET - HOLD_MIN) / (HOLD_MAX - HOLD_MIN), -5, 0.5, -7),
-    BackgroundColor3 = Color3.fromRGB(240, 240, 245),
-    BorderSizePixel = 0,
-    ZIndex = 2
-}, HoldBar)
-round(HoldHandle, 5)
-local HoldButton = create("TextButton", {
-    Size = UDim2.new(1, 0, 1, 0),
-    BackgroundTransparency = 1,
-    Text = "",
-    ZIndex = 3
-}, HoldBar)
 local TabBar = create("Frame", {
     Size = UDim2.new(1, 0, 0, 28),
     Position = UDim2.fromOffset(0, 40),
@@ -397,15 +358,9 @@ Minimize.MouseButton1Click:Connect(function()
     minimized = not minimized
     if minimized then
         savedMainHeight = Main.Size.Y.Offset
-        Content.Visible = false
-        TabBar.Visible = false
-        SettingsPanel.Visible = false
         Main.Size = UDim2.fromOffset(280, 40)
         Minimize.Text = "+"
     else
-        Content.Visible = true
-        TabBar.Visible = true
-        SettingsPanel.Visible = true
         Main.Size = UDim2.fromOffset(280, savedMainHeight)
         Minimize.Text = "−"
     end
@@ -417,16 +372,17 @@ TriangleBtn.MouseButton1Click:Connect(function()
     local panelH = settingsOpen and SETTINGS_PANEL_HEIGHT or 0
     local mainH = MAIN_BASE_HEIGHT + panelH
     local targetRotation = settingsOpen and 0 or 90
-    local ti = TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-    TweenService:Create(Main, ti, { Size = UDim2.fromOffset(280, mainH) }):Play()
-    TweenService:Create(SettingsPanel, ti, { Size = UDim2.new(1, 0, 0, panelH) }):Play()
-    TweenService:Create(TabBar, ti, { Position = UDim2.fromOffset(0, 40 + panelH) }):Play()
-    TweenService:Create(Content, ti, { Position = UDim2.fromOffset(8, 72 + panelH) }):Play()
-    TweenService:Create(TriangleBtn, ti, { Rotation = targetRotation }):Play()
+    TweenService:Create(Main, SETTINGS_TWEEN_INFO, { Size = UDim2.fromOffset(280, mainH) }):Play()
+    TweenService:Create(SettingsPanel, SETTINGS_TWEEN_INFO, { Size = UDim2.new(1, 0, 0, panelH) }):Play()
+    TweenService:Create(TabBar, SETTINGS_TWEEN_INFO, { Position = UDim2.fromOffset(0, 40 + panelH) }):Play()
+    TweenService:Create(Content, SETTINGS_TWEEN_INFO, { Position = UDim2.fromOffset(8, 72 + panelH) }):Play()
+    TweenService:Create(TriangleBtn, SETTINGS_TWEEN_INFO, { Rotation = targetRotation }):Play()
     saveConfig()
 end)
 local ItemConfigs = {}
 local fieldSelection = {}
+local FieldItemPermissions = {}
+local openFields = {}
 local function isFieldEnabled(name)
     local explicit = fieldSelection[name]
     if explicit ~= nil then return explicit end
@@ -474,11 +430,18 @@ if loadedData then
             end 
         end
     end
+    if type(loadedData.fieldItems) == "table" then
+        for fName, perms in pairs(loadedData.fieldItems) do
+            if type(perms) == "table" then
+                FieldItemPermissions[fName] = {}
+                for iName, allowed in pairs(perms) do
+                    FieldItemPermissions[fName][iName] = allowed
+                end
+            end
+        end
+    end
     if type(loadedData.speed) == "number" then 
         FlySpeed = math.clamp(math.floor(loadedData.speed), SPEED_MIN, SPEED_MAX) 
-    end
-    if type(loadedData.hoverDelay) == "number" then
-        HOVER_AT_TARGET = math.clamp(loadedData.hoverDelay, HOLD_MIN, HOLD_MAX)
     end
     if loadedData.settingsOpen == true then
         settingsOpen = true
@@ -501,8 +464,8 @@ saveConfig = function()
     local data = {
         items = ItemConfigs, 
         fields = fieldSelection, 
+        fieldItems = FieldItemPermissions,
         speed = FlySpeed,
-        hoverDelay = HOVER_AT_TARGET,
         settingsOpen = settingsOpen,
         guiPosition = { 
             xScale = Main.Position.X.Scale, 
@@ -517,297 +480,6 @@ saveConfig = function()
         pcall(writefile, SAVE_FILE, encoded) 
     end
 end
-refreshSpeedUI = function()
-    local ratio = (FlySpeed - SPEED_MIN) / (SPEED_MAX - SPEED_MIN)
-    SpeedFill.Size = UDim2.new(ratio, 0, 1, 0)
-    SpeedHandle.Position = UDim2.new(ratio, -5, 0.5, -7)
-    SpeedLabel.Text = "Global speed: " .. FlySpeed .. " studs/s"
-end
-refreshHoldUI = function()
-    local ratio = (HOVER_AT_TARGET - HOLD_MIN) / (HOLD_MAX - HOLD_MIN)
-    HoldFill.Size = UDim2.new(ratio, 0, 1, 0)
-    HoldHandle.Position = UDim2.new(ratio, -5, 0.5, -7)
-    HoldLabel.Text = "Global hold: " .. string.format("%.1f", HOVER_AT_TARGET) .. "s"
-end
-local draggingSpeed = false
-SpeedButton.InputBegan:Connect(function(input) 
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then 
-        draggingSpeed = true
-        local ratio = math.clamp((input.Position.X - SpeedBar.AbsolutePosition.X) / SpeedBar.AbsoluteSize.X, 0, 1)
-        FlySpeed = math.floor(SPEED_MIN + ratio * (SPEED_MAX - SPEED_MIN) + 0.5)
-        refreshSpeedUI()
-    end 
-end)
-UserInputService.InputChanged:Connect(function(input)
-    if draggingSpeed and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-        local ratio = math.clamp((input.Position.X - SpeedBar.AbsolutePosition.X) / SpeedBar.AbsoluteSize.X, 0, 1)
-        FlySpeed = math.floor(SPEED_MIN + ratio * (SPEED_MAX - SPEED_MIN) + 0.5)
-        refreshSpeedUI()
-    end
-end)
-UserInputService.InputEnded:Connect(function(input) 
-    if (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) and draggingSpeed then 
-        draggingSpeed = false
-        saveConfig() 
-    end 
-end)
-local draggingHold = false
-HoldButton.InputBegan:Connect(function(input) 
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then 
-        draggingHold = true
-        local ratio = math.clamp((input.Position.X - HoldBar.AbsolutePosition.X) / HoldBar.AbsoluteSize.X, 0, 1)
-        HOVER_AT_TARGET = math.floor((HOLD_MIN + ratio * (HOLD_MAX - HOLD_MIN)) * 10 + 0.5) / 10
-        refreshHoldUI()
-    end 
-end)
-UserInputService.InputChanged:Connect(function(input)
-    if draggingHold and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-        local ratio = math.clamp((input.Position.X - HoldBar.AbsolutePosition.X) / HoldBar.AbsoluteSize.X, 0, 1)
-        HOVER_AT_TARGET = math.floor((HOLD_MIN + ratio * (HOLD_MAX - HOLD_MIN)) * 10 + 0.5) / 10
-        refreshHoldUI()
-    end
-end)
-UserInputService.InputEnded:Connect(function(input) 
-    if (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) and draggingHold then 
-        draggingHold = false
-        saveConfig() 
-    end 
-end)
-local openMenus = {}
-local tweenInfo = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-local function buildItemRow(name, index, parent)
-    local conf = ensureConfig(name)
-    local isOpen = openMenus[name] == true
-    local baseHeight = 26
-    local expandedHeight = 110
-    local targetHeight = isOpen and expandedHeight or baseHeight
-    local Container = create("Frame", {
-        Size = UDim2.new(1, -2, 0, targetHeight),
-        BackgroundColor3 = Color3.fromRGB(37, 44, 57),
-        LayoutOrder = index,
-        ClipsDescendants = true
-    }, parent)
-    round(Container, 5)
-    local MainRow = create("Frame", {
-        Size = UDim2.new(1, 0, 0, 26),
-        BackgroundTransparency = 1,
-        ZIndex = 1
-    }, Container)
-    create("TextLabel", {
-        Size = UDim2.new(1, -40, 1, 0),
-        Position = UDim2.fromOffset(8, 0),
-        BackgroundTransparency = 1,
-        Text = name,
-        TextColor3 = Color3.fromRGB(225, 232, 245),
-        TextSize = 11,
-        Font = Enum.Font.Gotham,
-        TextXAlignment = Enum.TextXAlignment.Left,
-        TextTruncate = Enum.TextTruncate.AtEnd,
-        ZIndex = 1
-    }, MainRow)
-    local ItemTriangle = create("TextButton", {
-        Size = UDim2.fromOffset(24, 24),
-        Position = UDim2.new(1, -28, 0.5, -12),
-        BackgroundTransparency = 1,
-        Text = "▶",
-        TextColor3 = Color3.fromRGB(200, 210, 225),
-        TextSize = 14,
-        Font = Enum.Font.GothamBold,
-        Rotation = isOpen and 90 or 0,
-        ZIndex = 5
-    }, MainRow)
-    local Settings = create("Frame", {
-        Size = UDim2.new(1, 0, 0, expandedHeight - baseHeight),
-        Position = UDim2.fromOffset(0, baseHeight),
-        BackgroundTransparency = 1,
-        ZIndex = 1
-    }, Container)
-    local Toggle = create("TextButton", {
-        Size = UDim2.new(0.5, -6, 0, 24),
-        Position = UDim2.fromOffset(4, 4),
-        BackgroundColor3 = conf.enabled and Color3.fromRGB(35, 145, 85) or Color3.fromRGB(120, 45, 50),
-        Text = conf.enabled and "ENABLED" or "DISABLED",
-        TextColor3 = Color3.new(1, 1, 1),
-        TextSize = 9,
-        Font = Enum.Font.GothamBold
-    }, Settings)
-    round(Toggle, 4)
-    local ZoneBtn = create("TextButton", {
-        Size = UDim2.new(0.5, -6, 0, 24),
-        Position = UDim2.new(0.5, 2, 0, 4),
-        BackgroundColor3 = conf.ignoreZones and Color3.fromRGB(65, 115, 210) or Color3.fromRGB(80, 80, 90),
-        Text = conf.ignoreZones and "IGNORE ZONE" or "USE ZONE",
-        TextColor3 = Color3.new(1, 1, 1),
-        TextSize = 9,
-        Font = Enum.Font.GothamBold
-    }, Settings)
-    round(ZoneBtn, 4)
-    local FieldBtnItem = create("TextButton", {
-        Size = UDim2.new(1, -8, 0, 22),
-        Position = UDim2.fromOffset(4, 32),
-        BackgroundColor3 = conf.collectInField and Color3.fromRGB(35, 145, 85) or Color3.fromRGB(80, 80, 90),
-        Text = conf.collectInField and "COLLECT IN MY FIELD: ON" or "COLLECT IN MY FIELD: OFF",
-        TextColor3 = Color3.new(1, 1, 1),
-        TextSize = 9,
-        Font = Enum.Font.GothamBold
-    }, Settings)
-    round(FieldBtnItem, 4)
-    local ItemHoldLabel = create("TextLabel", {
-        Size = UDim2.new(1, -80, 0, 20),
-        Position = UDim2.fromOffset(5, 58),
-        BackgroundTransparency = 1,
-        Text = "Hold: " .. string.format("%.1f", conf.holdTime) .. "s",
-        TextColor3 = Color3.fromRGB(160, 175, 200),
-        TextSize = 10,
-        Font = Enum.Font.Gotham,
-        TextXAlignment = Enum.TextXAlignment.Left
-    }, Settings)
-    local MinusBtn = create("TextButton", {
-        Size = UDim2.fromOffset(30, 20),
-        Position = UDim2.new(1, -70, 0, 58),
-        BackgroundColor3 = Color3.fromRGB(48, 57, 73),
-        Text = "-",
-        TextColor3 = Color3.new(1, 1, 1),
-        TextSize = 12,
-        Font = Enum.Font.GothamBold
-    }, Settings)
-    round(MinusBtn, 4)
-    local PlusBtn = create("TextButton", {
-        Size = UDim2.fromOffset(30, 20),
-        Position = UDim2.new(1, -35, 0, 58),
-        BackgroundColor3 = Color3.fromRGB(48, 57, 73),
-        Text = "+",
-        TextColor3 = Color3.new(1, 1, 1),
-        TextSize = 12,
-        Font = Enum.Font.GothamBold
-    }, Settings)
-    round(PlusBtn, 4)
-    ItemTriangle.MouseButton1Click:Connect(function()
-        openMenus[name] = not openMenus[name]
-        local nowOpen = openMenus[name]
-        TweenService:Create(Container, tweenInfo, { Size = UDim2.new(1, -2, 0, nowOpen and expandedHeight or baseHeight) }):Play()
-        TweenService:Create(ItemTriangle, tweenInfo, { Rotation = nowOpen and 90 or 0 }):Play()
-    end)
-    Toggle.MouseButton1Click:Connect(function()
-        conf.enabled = not conf.enabled
-        Toggle.BackgroundColor3 = conf.enabled and Color3.fromRGB(35, 145, 85) or Color3.fromRGB(120, 45, 50)
-        Toggle.Text = conf.enabled and "ENABLED" or "DISABLED"
-        saveConfig()
-    end)
-    ZoneBtn.MouseButton1Click:Connect(function()
-        conf.ignoreZones = not conf.ignoreZones
-        ZoneBtn.BackgroundColor3 = conf.ignoreZones and Color3.fromRGB(65, 115, 210) or Color3.fromRGB(80, 80, 90)
-        ZoneBtn.Text = conf.ignoreZones and "IGNORE ZONE" or "USE ZONE"
-        saveConfig()
-    end)
-    FieldBtnItem.MouseButton1Click:Connect(function()
-        conf.collectInField = not conf.collectInField
-        FieldBtnItem.BackgroundColor3 = conf.collectInField and Color3.fromRGB(35, 145, 85) or Color3.fromRGB(80, 80, 90)
-        FieldBtnItem.Text = conf.collectInField and "COLLECT IN MY FIELD: ON" or "COLLECT IN MY FIELD: OFF"
-        saveConfig()
-    end)
-    MinusBtn.MouseButton1Click:Connect(function()
-        conf.holdTime = math.max(HOLD_MIN, math.floor((conf.holdTime - 0.1) * 10 + 0.5) / 10)
-        ItemHoldLabel.Text = "Hold: " .. string.format("%.1f", conf.holdTime) .. "s"
-        saveConfig()
-    end)
-    PlusBtn.MouseButton1Click:Connect(function()
-        conf.holdTime = math.min(HOLD_MAX, math.floor((conf.holdTime + 0.1) * 10 + 0.5) / 10)
-        ItemHoldLabel.Text = "Hold: " .. string.format("%.1f", conf.holdTime) .. "s"
-        saveConfig()
-    end)
-end
-refreshItemsList = function()
-    for _, child in ipairs(List:GetChildren()) do 
-        if child:IsA("Frame") then 
-            child:Destroy() 
-        end 
-    end
-    local searchTxt = SearchBar.Text:lower()
-    local sortedNames = {}
-    for name, _ in pairs(ItemDatabase) do 
-        if searchTxt == "" or name:lower():find(searchTxt) then
-            table.insert(sortedNames, name) 
-        end
-    end
-    table.sort(sortedNames)
-    for i, name in ipairs(sortedNames) do
-        buildItemRow(name, i, List)
-    end
-end
-SearchBar:GetPropertyChangedSignal("Text"):Connect(function() refreshItemsList() end)
-ClearBtn.MouseButton1Click:Connect(function() 
-    purgeCollectibles()
-    Footer.Text = "Collectibles cleared." 
-end)
-refreshFieldsList = function()
-    for _, child in ipairs(FieldsList:GetChildren()) do 
-        if child:IsA("Frame") then child:Destroy() end 
-    end
-    local folder = Workspace:FindFirstChild("FlowerZones")
-    if not folder then 
-        FieldsFooter.Text = "FlowerZones not found." 
-        return 
-    end
-    local names = {}
-    for _, zone in ipairs(folder:GetChildren()) do 
-        table.insert(names, zone.Name) 
-    end
-    table.sort(names)
-    for index, name in ipairs(names) do
-        local enabled = isFieldEnabled(name)
-        local Row = create("Frame", {
-            Size = UDim2.new(1, -2, 0, 26),
-            BackgroundColor3 = Color3.fromRGB(37, 44, 57),
-            LayoutOrder = index
-        }, FieldsList)
-        round(Row, 5)
-        create("TextLabel", {
-            Size = UDim2.new(1, -58, 1, 0),
-            Position = UDim2.fromOffset(8, 0),
-            BackgroundTransparency = 1,
-            Text = name,
-            TextColor3 = Color3.fromRGB(225, 232, 245),
-            TextSize = 11,
-            Font = Enum.Font.Gotham,
-            TextXAlignment = Enum.TextXAlignment.Left
-        }, Row)
-        local Toggle = create("TextButton", {
-            Size = UDim2.fromOffset(48, 20),
-            Position = UDim2.new(1, -52, 0.5, -10),
-            BackgroundColor3 = enabled and Color3.fromRGB(35, 145, 85) or Color3.fromRGB(120, 45, 50),
-            Text = enabled and "ON" or "OFF",
-            TextColor3 = Color3.new(1, 1, 1),
-            TextSize = 10,
-            Font = Enum.Font.GothamBold
-        }, Row)
-        round(Toggle, 4)
-        Toggle.MouseButton1Click:Connect(function()
-            local nowEnabled = not isFieldEnabled(name)
-            fieldSelection[name] = nowEnabled
-            Toggle.BackgroundColor3 = nowEnabled and Color3.fromRGB(35, 145, 85) or Color3.fromRGB(120, 45, 50)
-            Toggle.Text = nowEnabled and "ON" or "OFF"
-            saveConfig()
-        end)
-    end
-end
-IDsTab.MouseButton1Click:Connect(function()
-    IDPage.Visible = true
-    FieldsPage.Visible = false
-    IDsTab.BackgroundColor3 = Color3.fromRGB(65, 115, 210)
-    IDsTab.TextColor3 = Color3.new(1, 1, 1)
-    FieldsTab.BackgroundColor3 = Color3.fromRGB(42, 50, 65)
-    FieldsTab.TextColor3 = Color3.fromRGB(200, 210, 225)
-end)
-FieldsTab.MouseButton1Click:Connect(function()
-    IDPage.Visible = false
-    FieldsPage.Visible = true
-    IDsTab.BackgroundColor3 = Color3.fromRGB(42, 50, 65)
-    IDsTab.TextColor3 = Color3.fromRGB(200, 210, 225)
-    FieldsTab.BackgroundColor3 = Color3.fromRGB(65, 115, 210)
-    FieldsTab.TextColor3 = Color3.new(1, 1, 1)
-    refreshFieldsList()
-end)
 local function getBounds(object)
     local cf, size
     if object:IsA("BasePart") then 
@@ -838,7 +510,7 @@ local function getFlowerZones()
         if isFieldEnabled(zone.Name) then 
             local bounds = getBounds(zone)
             if bounds then 
-                table.insert(zones, bounds) 
+                table.insert(zones, {bounds = bounds, name = zone.Name}) 
             end
         end 
     end
@@ -849,10 +521,12 @@ local function getCurrentFields(playerPos)
     local result = {}
     if not folder then return result end
     for _, zone in ipairs(folder:GetChildren()) do 
-        local bounds = getBounds(zone)
-        if bounds then
-            if playerPos.X >= bounds.minX and playerPos.X <= bounds.maxX and playerPos.Z >= bounds.minZ and playerPos.Z <= bounds.maxZ then
-                table.insert(result, {bounds = bounds, name = zone.Name})
+        if isFieldEnabled(zone.Name) then
+            local bounds = getBounds(zone)
+            if bounds then
+                if playerPos.X >= bounds.minX and playerPos.X <= bounds.maxX and playerPos.Z >= bounds.minZ and playerPos.Z <= bounds.maxZ then
+                    table.insert(result, {bounds = bounds, name = zone.Name})
+                end
             end
         end
     end
@@ -871,10 +545,30 @@ local function intersectsFlowerZone(object, zones)
     local objectBounds = getBounds(object)
     if not objectBounds then return false end
     for _, zone in ipairs(zones) do
-        local overlapX = objectBounds.minX <= zone.maxX and objectBounds.maxX >= zone.minX
-        local overlapZ = objectBounds.minZ <= zone.maxZ and objectBounds.maxZ >= zone.minZ
+        local b = zone.bounds
+        local overlapX = objectBounds.minX <= b.maxX and objectBounds.maxX >= b.minX
+        local overlapZ = objectBounds.minZ <= b.maxZ and objectBounds.maxZ >= b.minZ
         if overlapX and overlapZ then 
             return true 
+        end
+    end
+    return false
+end
+local function isItemForbiddenInAnyField(itemName, object)
+    local objectBounds = getBounds(object)
+    if not objectBounds then return false end
+    local folder = Workspace:FindFirstChild("FlowerZones")
+    if not folder then return false end
+    for _, zone in ipairs(folder:GetChildren()) do
+        local bounds = getBounds(zone)
+        if bounds then
+            local overlapX = objectBounds.minX <= bounds.maxX and objectBounds.maxX >= bounds.minX
+            local overlapZ = objectBounds.minZ <= bounds.maxZ and objectBounds.maxZ >= bounds.minZ
+            if overlapX and overlapZ then
+                if FieldItemPermissions[zone.Name] and FieldItemPermissions[zone.Name][itemName] == false then
+                    return true
+                end
+            end
         end
     end
     return false
@@ -1013,19 +707,22 @@ local function scanPass(token)
                         if isFinite(targetPos.X) and isFinite(targetPos.Y) and isFinite(targetPos.Z) and targetPos.Y > -50 and targetPos.Y < 500 then
                             local dist = (targetPos - root.Position).Magnitude
                             if isFinite(dist) and dist < 3000 then
-                                local shouldCollect = false
-                                if conf.collectInField then
-                                    if not playerFields then
-                                        playerFields = getCurrentFields(root.Position)
-                                    end
-                                    if #playerFields > 0 and isPointInAnyField(targetPos, playerFields) then
+                                local isForbidden = isItemForbiddenInAnyField(itemName, object)
+                                if not isForbidden then
+                                    local shouldCollect = false
+                                    if conf.collectInField then
+                                        if not playerFields then
+                                            playerFields = getCurrentFields(root.Position)
+                                        end
+                                        if #playerFields > 0 and isPointInAnyField(targetPos, playerFields) then
+                                            shouldCollect = true
+                                        end
+                                    elseif conf.ignoreZones or intersectsFlowerZone(object, zones) then
                                         shouldCollect = true
                                     end
-                                elseif conf.ignoreZones or intersectsFlowerZone(object, zones) then
-                                    shouldCollect = true
-                                end
-                                if shouldCollect then
-                                    table.insert(targets, {object = object, cf = cf, holdTime = conf.holdTime}) 
+                                    if shouldCollect then
+                                        table.insert(targets, {object = object, cf = cf, holdTime = conf.holdTime}) 
+                                    end
                                 end
                             end
                         end
@@ -1125,16 +822,293 @@ if loadedData then
     end
     if loadedData.minimized == true then
         minimized = true
-        Content.Visible = false
-        TabBar.Visible = false
-        SettingsPanel.Visible = false
         Main.Size = UDim2.fromOffset(280, 40)
         Minimize.Text = "+"
     end
 end
+refreshSpeedUI = function()
+    local ratio = (FlySpeed - SPEED_MIN) / (SPEED_MAX - SPEED_MIN)
+    SpeedFill.Size = UDim2.new(ratio, 0, 1, 0)
+    SpeedHandle.Position = UDim2.new(ratio, -5, 0.5, -7)
+    SpeedLabel.Text = "Global speed: " .. FlySpeed .. " studs/s"
+end
+local draggingSpeed = false
+SpeedButton.InputBegan:Connect(function(input) 
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then 
+        draggingSpeed = true
+        local ratio = math.clamp((input.Position.X - SpeedBar.AbsolutePosition.X) / SpeedBar.AbsoluteSize.X, 0, 1)
+        FlySpeed = math.floor(SPEED_MIN + ratio * (SPEED_MAX - SPEED_MIN) + 0.5)
+        refreshSpeedUI()
+    end 
+end)
+UserInputService.InputChanged:Connect(function(input)
+    if draggingSpeed and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        local ratio = math.clamp((input.Position.X - SpeedBar.AbsolutePosition.X) / SpeedBar.AbsoluteSize.X, 0, 1)
+        FlySpeed = math.floor(SPEED_MIN + ratio * (SPEED_MAX - SPEED_MIN) + 0.5)
+        refreshSpeedUI()
+    end
+end)
+UserInputService.InputEnded:Connect(function(input) 
+    if (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) and draggingSpeed then 
+        draggingSpeed = false
+        saveConfig() 
+    end 
+end)
+local openMenus = {}
+local ITEM_TWEEN_INFO = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local function buildItemRow(name, index, parent)
+    local conf = ensureConfig(name)
+    local isOpen = openMenus[name] == true
+    local baseHeight = 26
+    local expandedHeight = 110
+    local targetHeight = isOpen and expandedHeight or baseHeight
+    local Container = create("Frame", {
+        Size = UDim2.new(1, -2, 0, targetHeight),
+        BackgroundColor3 = Color3.fromRGB(37, 44, 57),
+        LayoutOrder = index,
+        ClipsDescendants = true
+    }, parent)
+    round(Container, 5)
+    local MainRow = create("Frame", {
+        Size = UDim2.new(1, 0, 0, 26),
+        BackgroundTransparency = 1,
+        ZIndex = 1
+    }, Container)
+    create("TextLabel", {
+        Size = UDim2.new(1, -40, 1, 0),
+        Position = UDim2.fromOffset(8, 0),
+        BackgroundTransparency = 1,
+        Text = name,
+        TextColor3 = Color3.fromRGB(225, 232, 245),
+        TextSize = 11,
+        Font = Enum.Font.Gotham,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextTruncate = Enum.TextTruncate.AtEnd,
+        ZIndex = 1
+    }, MainRow)
+    local ItemTriangle = create("TextButton", {
+        Size = UDim2.fromOffset(24, 24),
+        Position = UDim2.new(1, -28, 0.5, -12),
+        BackgroundTransparency = 1,
+        Text = "▶",
+        TextColor3 = Color3.fromRGB(200, 210, 225),
+        TextSize = 14,
+        Font = Enum.Font.GothamBold,
+        Rotation = isOpen and 90 or 0,
+        ZIndex = 5
+    }, MainRow)
+    local Settings = create("Frame", {
+        Size = UDim2.new(1, 0, 0, expandedHeight - baseHeight),
+        Position = UDim2.fromOffset(0, baseHeight),
+        BackgroundTransparency = 1,
+        ZIndex = 1
+    }, Container)
+    local Toggle = create("TextButton", {
+        Size = UDim2.new(0.5, -6, 0, 24),
+        Position = UDim2.fromOffset(4, 4),
+        BackgroundColor3 = conf.enabled and Color3.fromRGB(35, 145, 85) or Color3.fromRGB(120, 45, 50),
+        Text = conf.enabled and "ENABLED" or "DISABLED",
+        TextColor3 = Color3.new(1, 1, 1),
+        TextSize = 9,
+        Font = Enum.Font.GothamBold
+    }, Settings)
+    round(Toggle, 4)
+    local ZoneBtn = create("TextButton", {
+        Size = UDim2.new(0.5, -6, 0, 24),
+        Position = UDim2.new(0.5, 2, 0, 4),
+        BackgroundColor3 = conf.ignoreZones and Color3.fromRGB(65, 115, 210) or Color3.fromRGB(80, 80, 90),
+        Text = conf.ignoreZones and "IGNORE ZONE" or "USE ZONE",
+        TextColor3 = Color3.new(1, 1, 1),
+        TextSize = 9,
+        Font = Enum.Font.GothamBold
+    }, Settings)
+    round(ZoneBtn, 4)
+    local FieldBtnItem = create("TextButton", {
+        Size = UDim2.new(1, -8, 0, 22),
+        Position = UDim2.fromOffset(4, 32),
+        BackgroundColor3 = conf.collectInField and Color3.fromRGB(35, 145, 85) or Color3.fromRGB(80, 80, 90),
+        Text = conf.collectInField and "COLLECT IN MY FIELD: ON" or "COLLECT IN MY FIELD: OFF",
+        TextColor3 = Color3.new(1, 1, 1),
+        TextSize = 9,
+        Font = Enum.Font.GothamBold
+    }, Settings)
+    round(FieldBtnItem, 4)
+    local ItemHoldLabel = create("TextLabel", {
+        Size = UDim2.new(1, -80, 0, 20),
+        Position = UDim2.fromOffset(5, 58),
+        BackgroundTransparency = 1,
+        Text = "Hold: " .. string.format("%.1f", conf.holdTime) .. "s",
+        TextColor3 = Color3.fromRGB(160, 175, 200),
+        TextSize = 10,
+        Font = Enum.Font.Gotham,
+        TextXAlignment = Enum.TextXAlignment.Left
+    }, Settings)
+    local MinusBtn = create("TextButton", {
+        Size = UDim2.fromOffset(30, 20),
+        Position = UDim2.new(1, -70, 0, 58),
+        BackgroundColor3 = Color3.fromRGB(48, 57, 73),
+        Text = "-",
+        TextColor3 = Color3.new(1, 1, 1),
+        TextSize = 12,
+        Font = Enum.Font.GothamBold
+    }, Settings)
+    round(MinusBtn, 4)
+    local PlusBtn = create("TextButton", {
+        Size = UDim2.fromOffset(30, 20),
+        Position = UDim2.new(1, -35, 0, 58),
+        BackgroundColor3 = Color3.fromRGB(48, 57, 73),
+        Text = "+",
+        TextColor3 = Color3.new(1, 1, 1),
+        TextSize = 12,
+        Font = Enum.Font.GothamBold
+    }, Settings)
+    round(PlusBtn, 4)
+    ItemTriangle.MouseButton1Click:Connect(function()
+        openMenus[name] = not openMenus[name]
+        local nowOpen = openMenus[name]
+        TweenService:Create(Container, ITEM_TWEEN_INFO, { Size = UDim2.new(1, -2, 0, nowOpen and expandedHeight or baseHeight) }):Play()
+        TweenService:Create(ItemTriangle, ITEM_TWEEN_INFO, { Rotation = nowOpen and 90 or 0 }):Play()
+    end)
+    Toggle.MouseButton1Click:Connect(function()
+        conf.enabled = not conf.enabled
+        Toggle.BackgroundColor3 = conf.enabled and Color3.fromRGB(35, 145, 85) or Color3.fromRGB(120, 45, 50)
+        Toggle.Text = conf.enabled and "ENABLED" or "DISABLED"
+        saveConfig()
+    end)
+    ZoneBtn.MouseButton1Click:Connect(function()
+        conf.ignoreZones = not conf.ignoreZones
+        ZoneBtn.BackgroundColor3 = conf.ignoreZones and Color3.fromRGB(65, 115, 210) or Color3.fromRGB(80, 80, 90)
+        ZoneBtn.Text = conf.ignoreZones and "IGNORE ZONE" or "USE ZONE"
+        saveConfig()
+    end)
+    FieldBtnItem.MouseButton1Click:Connect(function()
+        conf.collectInField = not conf.collectInField
+        FieldBtnItem.BackgroundColor3 = conf.collectInField and Color3.fromRGB(35, 145, 85) or Color3.fromRGB(80, 80, 90)
+        FieldBtnItem.Text = conf.collectInField and "COLLECT IN MY FIELD: ON" or "COLLECT IN MY FIELD: OFF"
+        saveConfig()
+    end)
+    MinusBtn.MouseButton1Click:Connect(function()
+        conf.holdTime = math.max(0.1, math.floor((conf.holdTime - 0.1) * 10 + 0.5) / 10)
+        ItemHoldLabel.Text = "Hold: " .. string.format("%.1f", conf.holdTime) .. "s"
+        saveConfig()
+    end)
+    PlusBtn.MouseButton1Click:Connect(function()
+        conf.holdTime = math.min(2.0, math.floor((conf.holdTime + 0.1) * 10 + 0.5) / 10)
+        ItemHoldLabel.Text = "Hold: " .. string.format("%.1f", conf.holdTime) .. "s"
+        saveConfig()
+    end)
+end
+local function buildFieldRow(fieldName, index, parent)
+    local isOpen = openFields[fieldName] == true
+    local baseHeight = 26
+    local expandedHeight = 160
+    local Container = create("Frame", {
+        Size = UDim2.new(1, -2, 0, isOpen and expandedHeight or baseHeight),
+        BackgroundColor3 = Color3.fromRGB(37, 44, 57),
+        LayoutOrder = index,
+        ClipsDescendants = true
+    }, parent)
+    round(Container, 5)
+    local MainRow = create("Frame", { Size = UDim2.new(1, 0, 0, 26), BackgroundTransparency = 1 }, Container)
+    create("TextLabel", { Size = UDim2.new(1, -80, 1, 0), Position = UDim2.fromOffset(8, 0), BackgroundTransparency = 1, Text = fieldName, TextColor3 = Color3.fromRGB(225, 232, 245), TextSize = 11, Font = Enum.Font.Gotham, TextXAlignment = Enum.TextXAlignment.Left }, MainRow)
+    local ToggleBtn = create("TextButton", { Size = UDim2.fromOffset(48, 20), Position = UDim2.new(1, -76, 0.5, -10), BackgroundColor3 = isFieldEnabled(fieldName) and Color3.fromRGB(35, 145, 85) or Color3.fromRGB(120, 45, 50), Text = isFieldEnabled(fieldName) and "ON" or "OFF", TextColor3 = Color3.new(1, 1, 1), TextSize = 10, Font = Enum.Font.GothamBold }, MainRow)
+    round(ToggleBtn, 4)
+    ToggleBtn.MouseButton1Click:Connect(function()
+        local nowEnabled = not isFieldEnabled(fieldName)
+        fieldSelection[fieldName] = nowEnabled
+        ToggleBtn.BackgroundColor3 = nowEnabled and Color3.fromRGB(35, 145, 85) or Color3.fromRGB(120, 45, 50)
+        ToggleBtn.Text = nowEnabled and "ON" or "OFF"
+        saveConfig()
+    end)
+    local ArrowBtn = create("TextButton", { Size = UDim2.fromOffset(24, 24), Position = UDim2.new(1, -26, 0.5, -12), BackgroundTransparency = 1, Text = "▶", TextColor3 = Color3.fromRGB(200, 210, 225), TextSize = 14, Font = Enum.Font.GothamBold, Rotation = isOpen and 90 or 0 }, MainRow)
+    local InnerSettings = create("Frame", { Size = UDim2.new(1, -8, 0, expandedHeight - baseHeight), Position = UDim2.fromOffset(4, baseHeight), BackgroundTransparency = 1 }, Container)
+    local InnerList = create("ScrollingFrame", { Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, ScrollBarThickness = 3, CanvasSize = UDim2.new(0, 0, 0, 0), AutomaticCanvasSize = Enum.AutomaticSize.Y }, InnerSettings)
+    create("UIListLayout", { Padding = UDim.new(0, 2) }, InnerList)
+    for _, itemName in ipairs(SortedItemNames) do
+        local isAllowed = true
+        if FieldItemPermissions[fieldName] and FieldItemPermissions[fieldName][itemName] == false then
+            isAllowed = false
+        end
+        local itemRow = create("Frame", { Size = UDim2.new(1, -2, 0, 20), BackgroundColor3 = Color3.fromRGB(45, 50, 65) }, InnerList)
+        round(itemRow, 3)
+        create("TextLabel", { Size = UDim2.new(1, -60, 1, 0), Position = UDim2.fromOffset(4, 0), BackgroundTransparency = 1, Text = itemName, TextColor3 = Color3.fromRGB(200, 210, 225), TextSize = 9, Font = Enum.Font.Gotham, TextXAlignment = Enum.TextXAlignment.Left }, itemRow)
+        local itemBtn = create("TextButton", { Size = UDim2.fromOffset(50, 16), Position = UDim2.new(1, -54, 0.5, -8), BackgroundColor3 = isAllowed and Color3.fromRGB(35, 145, 85) or Color3.fromRGB(120, 45, 50), Text = isAllowed and "ALLOW" or "FORBID", TextColor3 = Color3.new(1, 1, 1), TextSize = 8, Font = Enum.Font.GothamBold }, itemRow)
+        round(itemBtn, 3)
+        itemBtn.MouseButton1Click:Connect(function()
+            if not FieldItemPermissions[fieldName] then FieldItemPermissions[fieldName] = {} end
+            local current = FieldItemPermissions[fieldName][itemName]
+            if current == nil then current = true end
+            current = not current
+            FieldItemPermissions[fieldName][itemName] = current
+            itemBtn.BackgroundColor3 = current and Color3.fromRGB(35, 145, 85) or Color3.fromRGB(120, 45, 50)
+            itemBtn.Text = current and "ALLOW" or "FORBID"
+            saveConfig()
+        end)
+    end
+    ArrowBtn.MouseButton1Click:Connect(function()
+        openFields[fieldName] = not openFields[fieldName]
+        local nowOpen = openFields[fieldName]
+        TweenService:Create(Container, ITEM_TWEEN_INFO, { Size = UDim2.new(1, -2, 0, nowOpen and expandedHeight or baseHeight) }):Play()
+        TweenService:Create(ArrowBtn, ITEM_TWEEN_INFO, { Rotation = nowOpen and 90 or 0 }):Play()
+    end)
+end
+refreshItemsList = function()
+    for _, child in ipairs(List:GetChildren()) do 
+        if child:IsA("Frame") then child:Destroy() end 
+    end
+    local searchTxt = SearchBar.Text:lower()
+    local filteredNames = {}
+    for _, name in ipairs(SortedItemNames) do 
+        if searchTxt == "" or name:lower():find(searchTxt) then
+            table.insert(filteredNames, name) 
+        end
+    end
+    for i, name in ipairs(filteredNames) do
+        buildItemRow(name, i, List)
+    end
+end
+refreshFieldsList = function()
+    for _, child in ipairs(FieldsList:GetChildren()) do 
+        if child:IsA("Frame") then child:Destroy() end 
+    end
+    local folder = Workspace:FindFirstChild("FlowerZones")
+    if not folder then 
+        FieldsFooter.Text = "FlowerZones not found." 
+        return 
+    end
+    local names = {}
+    for _, zone in ipairs(folder:GetChildren()) do 
+        table.insert(names, zone.Name) 
+    end
+    table.sort(names)
+    for index, name in ipairs(names) do
+        buildFieldRow(name, index, FieldsList)
+    end
+end
+SearchBar:GetPropertyChangedSignal("Text"):Connect(function() refreshItemsList() end)
+ClearBtn.MouseButton1Click:Connect(function() 
+    purgeCollectibles()
+    Footer.Text = "Collectibles cleared." 
+end)
+IDsTab.MouseButton1Click:Connect(function()
+    IDPage.Visible = true
+    FieldsPage.Visible = false
+    IDsTab.BackgroundColor3 = Color3.fromRGB(65, 115, 210)
+    IDsTab.TextColor3 = Color3.new(1, 1, 1)
+    FieldsTab.BackgroundColor3 = Color3.fromRGB(42, 50, 65)
+    FieldsTab.TextColor3 = Color3.fromRGB(200, 210, 225)
+end)
+FieldsTab.MouseButton1Click:Connect(function()
+    IDPage.Visible = false
+    FieldsPage.Visible = true
+    IDsTab.BackgroundColor3 = Color3.fromRGB(42, 50, 65)
+    IDsTab.TextColor3 = Color3.fromRGB(200, 210, 225)
+    FieldsTab.BackgroundColor3 = Color3.fromRGB(65, 115, 210)
+    FieldsTab.TextColor3 = Color3.new(1, 1, 1)
+    refreshFieldsList()
+end)
 refreshSpeedUI()
-refreshHoldUI()
 updateStatus()
 refreshItemsList()
 Footer.Text = "Ready."
-print("[Sprout Collector] Loaded with accordion items.")
+print("[Sprout Collector] Loaded with Field-Item Permissions.")
