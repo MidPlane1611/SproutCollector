@@ -74,9 +74,6 @@ if AUTO_CLEAR then
         local folder = Workspace:WaitForChild("Collectibles", 10)
         if folder then
             purgeCollectibles()
-            folder.ChildAdded:Connect(function(child)
-                pcall(function() child:Destroy() end)
-            end)
         end
     end)
 end
@@ -710,7 +707,6 @@ local function scanPass(token)
     if not character then return end
     local root = character:FindFirstChild("HumanoidRootPart")
     if not root then return end
-    HomePosition = root.CFrame 
     local zones = getFlowerZones()
     if not isRunning(token) then return end
     local collectiblesFolder = Workspace:FindFirstChild("Collectibles")
@@ -741,6 +737,7 @@ local function scanPass(token)
         Footer.Text = string.format("None | scan %d, id %d", scanned, matchedID) 
         return 
     end
+    HomePosition = root.CFrame
     Footer.Text = "Flying to " .. #targets .. " target(s)..."
     for index, entry in ipairs(targets) do
         if not isRunning(token) or Player.Character ~= character or not root.Parent then break end
