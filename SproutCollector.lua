@@ -10,7 +10,6 @@ local AUTO_CLEAR = true
 local SPEED_MIN = 20
 local SPEED_MAX = 800
 local FlySpeed = 60
-local IgnoreZones = false
 local FallbackItems = {
     ["Basic Egg"] = "1471846464", ["Silver Egg"] = "1471848094", ["Gold Egg"] = "1471849394",
     ["Royal Jelly"] = "1471882621", ["Mythic Egg"] = "4520739302", ["Diamond Egg"] = "1471850677",
@@ -49,8 +48,10 @@ local purgeCollectibles
 local refreshSpeedUI
 local refreshItemsList
 local ItemDatabase = {}
+local IDToName = {}
 for name, id in pairs(FallbackItems) do
     ItemDatabase[name] = id
+    IDToName[id] = name
 end
 purgeCollectibles = function()
     local folder = Workspace:FindFirstChild("Collectibles")
@@ -161,7 +162,7 @@ local Content = create("Frame", {
     BackgroundTransparency = 1
 }, Main)
 local Status = create("TextButton", {
-    Size = UDim2.new(0.5, -3, 0, 30),
+    Size = UDim2.new(1, 0, 0, 30),
     Position = UDim2.fromOffset(0, 0),
     BackgroundColor3 = Color3.fromRGB(150, 45, 50),
     Text = "OFF",
@@ -170,16 +171,6 @@ local Status = create("TextButton", {
     Font = Enum.Font.GothamBold
 }, Content)
 round(Status, 7)
-local IgnoreBtn = create("TextButton", {
-    Size = UDim2.new(0.5, -3, 0, 30),
-    Position = UDim2.new(0.5, 3, 0, 0),
-    BackgroundColor3 = Color3.fromRGB(60, 60, 70),
-    Text = "IGNORE ZONES: OFF",
-    TextColor3 = Color3.new(1, 1, 1),
-    TextSize = 10,
-    Font = Enum.Font.GothamBold
-}, Content)
-round(IgnoreBtn, 7)
 local SpeedControl = create("Frame", {
     Size = UDim2.new(1, 0, 0, 22),
     Position = UDim2.fromOffset(0, 34),
@@ -343,19 +334,9 @@ Minimize.MouseButton1Click:Connect(function()
     end
     if saveConfig then saveConfig() end
 end)
-IgnoreBtn.MouseButton1Click:Connect(function()
-    IgnoreZones = not IgnoreZones
-    if IgnoreZones then
-        IgnoreBtn.Text = "IGNORE ZONES: ON"
-        IgnoreBtn.BackgroundColor3 = Color3.fromRGB(65, 115, 210)
-    else
-        IgnoreBtn.Text = "IGNORE ZONES: OFF"
-        IgnoreBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
-    end
-    saveConfig()
-end)
 local SelectedNames = {}
 local SelectedIDs = {}
+local ItemIgnoreZones = {}
 local fieldSelection = {}
 local function isFieldEnabled(name)
     local explicit = fieldSelection[name]
@@ -382,6 +363,13 @@ if loadedData then
             end
         end
     end
+    if type(loadedData.ignoreZones) == "table" then
+        for _, name in ipairs(loadedData.ignoreZones) do
+            if ItemDatabase[name] then
+                ItemIgnoreZones[name] = true
+            end
+        end
+    end
     if type(loadedData.fields) == "table" then
         for name, enabled in pairs(loadedData.fields) do 
             if type(name) == "string" and type(enabled) == "boolean" then 
@@ -391,11 +379,6 @@ if loadedData then
     end
     if type(loadedData.speed) == "number" then 
         FlySpeed = math.clamp(math.floor(loadedData.speed), SPEED_MIN, SPEED_MAX) 
-    end
-    if loadedData.ignoreZones == true then
-        IgnoreZones = true
-        IgnoreBtn.Text = "IGNORE ZONES: ON"
-        IgnoreBtn.BackgroundColor3 = Color3.fromRGB(65, 115, 210)
     end
 end
 saveConfig = function()
@@ -409,11 +392,15 @@ saveConfig = function()
     for name, _ in pairs(SelectedNames) do 
         table.insert(itemsList, name) 
     end
+    local ignoreList = {}
+    for name, val in pairs(ItemIgnoreZones) do
+        if val then table.insert(ignoreList, name) end
+    end
     local data = {
         items = itemsList, 
+        ignoreZones = ignoreList,
         fields = fieldSelection, 
         speed = FlySpeed,
-        ignoreZones = IgnoreZones,
         guiPosition = { 
             xScale = Main.Position.X.Scale, 
             xOffset = Main.Position.X.Offset, 
@@ -472,6 +459,7 @@ refreshItemsList = function()
     for i, name in ipairs(sortedNames) do
         local id = ItemDatabase[name]
         local isSelected = SelectedNames[name] == true
+        local isIgnoring = ItemIgnoreZones[name] == true
         local Row = create("Frame", {
             Size = UDim2.new(1, -2, 0, 26),
             BackgroundColor3 = Color3.fromRGB(37, 44, 57),
@@ -479,7 +467,7 @@ refreshItemsList = function()
         }, List)
         round(Row, 5)
         create("TextLabel", {
-            Size = UDim2.new(1, -58, 1, 0),
+            Size = UDim2.new(1, -85, 1, 0),
             Position = UDim2.fromOffset(8, 0),
             BackgroundTransparency = 1,
             Text = name,
@@ -489,6 +477,21 @@ refreshItemsList = function()
             TextXAlignment = Enum.TextXAlignment.Left,
             TextTruncate = Enum.TextTruncate.AtEnd
         }, Row)
+        local ZoneBtn = create("TextButton", {
+            Size = UDim2.fromOffset(24, 20),
+            Position = UDim2.new(1, -80, 0.5, -10),
+            BackgroundColor3 = isIgnoring and Color3.fromRGB(65, 115, 210) or Color3.fromRGB(80, 80, 90),
+            Text = "Z",
+            TextColor3 = Color3.new(1, 1, 1),
+            TextSize = 10,
+            Font = Enum.Font.GothamBold
+        }, Row)
+        round(ZoneBtn, 4)
+        ZoneBtn.MouseButton1Click:Connect(function()
+            ItemIgnoreZones[name] = not ItemIgnoreZones[name]
+            ZoneBtn.BackgroundColor3 = ItemIgnoreZones[name] and Color3.fromRGB(65, 115, 210) or Color3.fromRGB(80, 80, 90)
+            saveConfig()
+        end)
         local Toggle = create("TextButton", {
             Size = UDim2.fromOffset(48, 20),
             Position = UDim2.new(1, -52, 0.5, -10),
@@ -745,7 +748,9 @@ local function scanPass(token)
             local id = getColorMapID(object)
             if id and SelectedIDs[id] then
                 matchedID = matchedID + 1
-                if IgnoreZones or intersectsFlowerZone(object, zones) then
+                local itemName = IDToName[id]
+                local ignoreThis = itemName and ItemIgnoreZones[itemName]
+                if ignoreThis or intersectsFlowerZone(object, zones) then
                     local cf = getTargetCFrame(object)
                     if cf then 
                         table.insert(targets, {object = object, cf = cf}) 
