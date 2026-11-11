@@ -15,7 +15,6 @@ local SETTINGS_PANEL_HEIGHT = 76
 local MAIN_BASE_HEIGHT = 340
 local settingsOpen = false
 local SETTINGS_TWEEN_INFO = TweenInfo.new(0.45, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
-local MINIMIZE_TWEEN_INFO = TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 local FallbackItems = {
     ["Basic Egg"] = "1471846464", ["Silver Egg"] = "1471848094", ["Gold Egg"] = "1471849394",
     ["Royal Jelly"] = "1471882621", ["Mythic Egg"] = "4520739302", ["Diamond Egg"] = "1471850677",
@@ -303,7 +302,7 @@ local FieldsPage = create("Frame", {
     Visible = false
 }, Content)
 local FieldsList = create("ScrollingFrame", {
-    Size = UDim2.new(1, 0, 1, -30),
+    Size = UDim2.new(1, 0, 1, 0),
     BackgroundColor3 = Color3.fromRGB(27, 32, 42),
     BorderSizePixel = 0,
     ScrollBarThickness = 4,
@@ -313,17 +312,6 @@ local FieldsList = create("ScrollingFrame", {
 round(FieldsList, 7)
 create("UIListLayout", { Padding = UDim.new(0, 4) }, FieldsList)
 create("UIPadding", { PaddingTop = UDim.new(0, 5), PaddingBottom = UDim.new(0, 5), PaddingLeft = UDim.new(0, 5), PaddingRight = UDim.new(0, 5) }, FieldsList)
-local FieldsFooter = create("TextLabel", {
-    Size = UDim2.new(1, 0, 0, 30),
-    Position = UDim2.new(0, 0, 1, -30),
-    BackgroundTransparency = 1,
-    Text = "",
-    TextColor3 = Color3.fromRGB(135, 150, 175),
-    TextSize = 9,
-    Font = Enum.Font.Gotham,
-    TextWrapped = true,
-    TextXAlignment = Enum.TextXAlignment.Left
-}, FieldsPage)
 local dragging = false
 local dragInput
 local dragStart
@@ -380,14 +368,8 @@ TriangleBtn.MouseButton1Click:Connect(function()
     saveConfig()
 end)
 local ItemConfigs = {}
-local fieldSelection = {}
 local FieldItemPermissions = {}
 local openFields = {}
-local function isFieldEnabled(name)
-    local explicit = fieldSelection[name]
-    if explicit ~= nil then return explicit end
-    return true
-end
 local function ensureConfig(name)
     if not ItemConfigs[name] then
         ItemConfigs[name] = {
@@ -423,13 +405,6 @@ if loadedData then
             end
         end
     end
-    if type(loadedData.fields) == "table" then
-        for name, enabled in pairs(loadedData.fields) do 
-            if type(name) == "string" and type(enabled) == "boolean" then 
-                fieldSelection[name] = enabled 
-            end 
-        end
-    end
     if type(loadedData.fieldItems) == "table" then
         for fName, perms in pairs(loadedData.fieldItems) do
             if type(perms) == "table" then
@@ -463,7 +438,6 @@ saveConfig = function()
     end
     local data = {
         items = ItemConfigs, 
-        fields = fieldSelection, 
         fieldItems = FieldItemPermissions,
         speed = FlySpeed,
         settingsOpen = settingsOpen,
@@ -507,12 +481,10 @@ local function getFlowerZones()
     local zones = {}
     if not folder then return zones end
     for _, zone in ipairs(folder:GetChildren()) do 
-        if isFieldEnabled(zone.Name) then 
-            local bounds = getBounds(zone)
-            if bounds then 
-                table.insert(zones, {bounds = bounds, name = zone.Name}) 
-            end
-        end 
+        local bounds = getBounds(zone)
+        if bounds then 
+            table.insert(zones, {bounds = bounds, name = zone.Name}) 
+        end
     end
     return zones
 end
@@ -521,12 +493,10 @@ local function getCurrentFields(playerPos)
     local result = {}
     if not folder then return result end
     for _, zone in ipairs(folder:GetChildren()) do 
-        if isFieldEnabled(zone.Name) then
-            local bounds = getBounds(zone)
-            if bounds then
-                if playerPos.X >= bounds.minX and playerPos.X <= bounds.maxX and playerPos.Z >= bounds.minZ and playerPos.Z <= bounds.maxZ then
-                    table.insert(result, {bounds = bounds, name = zone.Name})
-                end
+        local bounds = getBounds(zone)
+        if bounds then
+            if playerPos.X >= bounds.minX and playerPos.X <= bounds.maxX and playerPos.Z >= bounds.minZ and playerPos.Z <= bounds.maxZ then
+                table.insert(result, {bounds = bounds, name = zone.Name})
             end
         end
     end
@@ -565,7 +535,8 @@ local function isItemForbiddenInAnyField(itemName, object)
             local overlapX = objectBounds.minX <= bounds.maxX and objectBounds.maxX >= bounds.minX
             local overlapZ = objectBounds.minZ <= bounds.maxZ and objectBounds.maxZ >= bounds.minZ
             if overlapX and overlapZ then
-                if FieldItemPermissions[zone.Name] and FieldItemPermissions[zone.Name][itemName] == false then
+                local perms = FieldItemPermissions[zone.Name]
+                if perms and perms[itemName] == false then
                     return true
                 end
             end
@@ -1001,7 +972,7 @@ end
 local function buildFieldRow(fieldName, index, parent)
     local isOpen = openFields[fieldName] == true
     local baseHeight = 26
-    local expandedHeight = 160
+    local expandedHeight = 200
     local Container = create("Frame", {
         Size = UDim2.new(1, -2, 0, isOpen and expandedHeight or baseHeight),
         BackgroundColor3 = Color3.fromRGB(37, 44, 57),
@@ -1010,21 +981,18 @@ local function buildFieldRow(fieldName, index, parent)
     }, parent)
     round(Container, 5)
     local MainRow = create("Frame", { Size = UDim2.new(1, 0, 0, 26), BackgroundTransparency = 1 }, Container)
-    create("TextLabel", { Size = UDim2.new(1, -80, 1, 0), Position = UDim2.fromOffset(8, 0), BackgroundTransparency = 1, Text = fieldName, TextColor3 = Color3.fromRGB(225, 232, 245), TextSize = 11, Font = Enum.Font.Gotham, TextXAlignment = Enum.TextXAlignment.Left }, MainRow)
-    local ToggleBtn = create("TextButton", { Size = UDim2.fromOffset(48, 20), Position = UDim2.new(1, -76, 0.5, -10), BackgroundColor3 = isFieldEnabled(fieldName) and Color3.fromRGB(35, 145, 85) or Color3.fromRGB(120, 45, 50), Text = isFieldEnabled(fieldName) and "ON" or "OFF", TextColor3 = Color3.new(1, 1, 1), TextSize = 10, Font = Enum.Font.GothamBold }, MainRow)
-    round(ToggleBtn, 4)
-    ToggleBtn.MouseButton1Click:Connect(function()
-        local nowEnabled = not isFieldEnabled(fieldName)
-        fieldSelection[fieldName] = nowEnabled
-        ToggleBtn.BackgroundColor3 = nowEnabled and Color3.fromRGB(35, 145, 85) or Color3.fromRGB(120, 45, 50)
-        ToggleBtn.Text = nowEnabled and "ON" or "OFF"
-        saveConfig()
-    end)
-    local ArrowBtn = create("TextButton", { Size = UDim2.fromOffset(24, 24), Position = UDim2.new(1, -26, 0.5, -12), BackgroundTransparency = 1, Text = "▶", TextColor3 = Color3.fromRGB(200, 210, 225), TextSize = 14, Font = Enum.Font.GothamBold, Rotation = isOpen and 90 or 0 }, MainRow)
+    create("TextLabel", { Size = UDim2.new(1, -40, 1, 0), Position = UDim2.fromOffset(8, 0), BackgroundTransparency = 1, Text = fieldName, TextColor3 = Color3.fromRGB(225, 232, 245), TextSize = 11, Font = Enum.Font.Gotham, TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd }, MainRow)
+    local ArrowBtn = create("TextButton", { Size = UDim2.fromOffset(24, 24), Position = UDim2.new(1, -28, 0.5, -12), BackgroundTransparency = 1, Text = "▶", TextColor3 = Color3.fromRGB(200, 210, 225), TextSize = 14, Font = Enum.Font.GothamBold, Rotation = isOpen and 90 or 0, ZIndex = 5 }, MainRow)
     local InnerSettings = create("Frame", { Size = UDim2.new(1, -8, 0, expandedHeight - baseHeight), Position = UDim2.fromOffset(4, baseHeight), BackgroundTransparency = 1 }, Container)
-    local InnerList = create("ScrollingFrame", { Size = UDim2.new(1, 0, 1, 0), BackgroundTransparency = 1, ScrollBarThickness = 3, CanvasSize = UDim2.new(0, 0, 0, 0), AutomaticCanvasSize = Enum.AutomaticSize.Y }, InnerSettings)
+    local BulkRow = create("Frame", { Size = UDim2.new(1, 0, 0, 22), BackgroundTransparency = 1 }, InnerSettings)
+    local AllowAllBtn = create("TextButton", { Size = UDim2.new(0.5, -2, 1, 0), Position = UDim2.fromOffset(0, 0), BackgroundColor3 = Color3.fromRGB(35, 145, 85), Text = "ALLOW ALL", TextColor3 = Color3.new(1, 1, 1), TextSize = 9, Font = Enum.Font.GothamBold }, BulkRow)
+    round(AllowAllBtn, 4)
+    local ForbidAllBtn = create("TextButton", { Size = UDim2.new(0.5, -2, 1, 0), Position = UDim2.new(0.5, 2, 0, 0), BackgroundColor3 = Color3.fromRGB(120, 45, 50), Text = "FORBID ALL", TextColor3 = Color3.new(1, 1, 1), TextSize = 9, Font = Enum.Font.GothamBold }, BulkRow)
+    round(ForbidAllBtn, 4)
+    local InnerList = create("ScrollingFrame", { Size = UDim2.new(1, 0, 1, -26), Position = UDim2.fromOffset(0, 26), BackgroundTransparency = 1, ScrollBarThickness = 3, CanvasSize = UDim2.new(0, 0, 0, 0), AutomaticCanvasSize = Enum.AutomaticSize.Y }, InnerSettings)
     create("UIListLayout", { Padding = UDim.new(0, 2) }, InnerList)
-    for _, itemName in ipairs(SortedItemNames) do
+    local itemButtons = {}
+    local function makeItemRow(itemName)
         local isAllowed = true
         if FieldItemPermissions[fieldName] and FieldItemPermissions[fieldName][itemName] == false then
             isAllowed = false
@@ -1032,7 +1000,7 @@ local function buildFieldRow(fieldName, index, parent)
         local itemRow = create("Frame", { Size = UDim2.new(1, -2, 0, 20), BackgroundColor3 = Color3.fromRGB(45, 50, 65) }, InnerList)
         round(itemRow, 3)
         create("TextLabel", { Size = UDim2.new(1, -60, 1, 0), Position = UDim2.fromOffset(4, 0), BackgroundTransparency = 1, Text = itemName, TextColor3 = Color3.fromRGB(200, 210, 225), TextSize = 9, Font = Enum.Font.Gotham, TextXAlignment = Enum.TextXAlignment.Left }, itemRow)
-        local itemBtn = create("TextButton", { Size = UDim2.fromOffset(50, 16), Position = UDim2.new(1, -54, 0.5, -8), BackgroundColor3 = isAllowed and Color3.fromRGB(35, 145, 85) or Color3.fromRGB(120, 45, 50), Text = isAllowed and "ALLOW" or "FORBID", TextColor3 = Color3.new(1, 1, 1), TextSize = 8, Font = Enum.Font.GothamBold }, itemRow)
+        local itemBtn = create("TextButton", { Size = UDim2.new(0, 50, 0, 16), Position = UDim2.new(1, -54, 0.5, -8), BackgroundColor3 = isAllowed and Color3.fromRGB(35, 145, 85) or Color3.fromRGB(120, 45, 50), Text = isAllowed and "ALLOW" or "FORBID", TextColor3 = Color3.new(1, 1, 1), TextSize = 8, Font = Enum.Font.GothamBold }, itemRow)
         round(itemBtn, 3)
         itemBtn.MouseButton1Click:Connect(function()
             if not FieldItemPermissions[fieldName] then FieldItemPermissions[fieldName] = {} end
@@ -1044,7 +1012,39 @@ local function buildFieldRow(fieldName, index, parent)
             itemBtn.Text = current and "ALLOW" or "FORBID"
             saveConfig()
         end)
+        itemButtons[itemName] = itemBtn
     end
+    for _, itemName in ipairs(SortedItemNames) do
+        makeItemRow(itemName)
+    end
+    AllowAllBtn.MouseButton1Click:Connect(function()
+        FieldItemPermissions[fieldName] = {}
+        for _, itemName in ipairs(SortedItemNames) do
+            FieldItemPermissions[fieldName][itemName] = true
+        end
+        for _, itemName in ipairs(SortedItemNames) do
+            local btn = itemButtons[itemName]
+            if btn then
+                btn.BackgroundColor3 = Color3.fromRGB(35, 145, 85)
+                btn.Text = "ALLOW"
+            end
+        end
+        saveConfig()
+    end)
+    ForbidAllBtn.MouseButton1Click:Connect(function()
+        FieldItemPermissions[fieldName] = {}
+        for _, itemName in ipairs(SortedItemNames) do
+            FieldItemPermissions[fieldName][itemName] = false
+        end
+        for _, itemName in ipairs(SortedItemNames) do
+            local btn = itemButtons[itemName]
+            if btn then
+                btn.BackgroundColor3 = Color3.fromRGB(120, 45, 50)
+                btn.Text = "FORBID"
+            end
+        end
+        saveConfig()
+    end)
     ArrowBtn.MouseButton1Click:Connect(function()
         openFields[fieldName] = not openFields[fieldName]
         local nowOpen = openFields[fieldName]
@@ -1073,7 +1073,6 @@ refreshFieldsList = function()
     end
     local folder = Workspace:FindFirstChild("FlowerZones")
     if not folder then 
-        FieldsFooter.Text = "FlowerZones not found." 
         return 
     end
     local names = {}
@@ -1111,4 +1110,4 @@ refreshSpeedUI()
 updateStatus()
 refreshItemsList()
 Footer.Text = "Ready."
-print("[Sprout Collector] Loaded with Field-Item Permissions.")
+print("[Sprout Collector] Loaded with Field-Item Permissions (no field toggle).")
