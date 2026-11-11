@@ -2,7 +2,6 @@ local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local UserInputService = game:GetService("UserInputService")
 local HttpService = game:GetService("HttpService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Player = Players.LocalPlayer
 local PlayerGui = Player:WaitForChild("PlayerGui")
 local SCAN_INTERVAL = 1
@@ -60,57 +59,12 @@ local ItemDatabase = {}
 for name, id in pairs(FallbackItems) do
     ItemDatabase[name] = id
 end
-local function extractIDFromObject(object)
-    local properties = {"ColorMap", "Texture", "Image", "TextureId"}
-    for _, propName in ipairs(properties) do
-        local success, value = pcall(function()
-            return object[propName]
-        end)
-        if success and value and tostring(value) ~= "" then
-            local id = tostring(value):match("%d+")
-            if id then return id end
-        end
-    end
-    local descendants = object:GetDescendants()
-    for _, child in ipairs(descendants) do
-        for _, propName in ipairs(properties) do
-            local success, value = pcall(function()
-                return child[propName]
-            end)
-            if success and value and tostring(value) ~= "" then
-                local id = tostring(value):match("%d+")
-                if id then return id end
-            end
-        end
-    end
-    return nil
-end
-local rsCollectibles = ReplicatedStorage:FindFirstChild("Collectibles")
-if rsCollectibles then
-    for _, obj in ipairs(rsCollectibles:GetChildren()) do
-        local id = extractIDFromObject(obj)
-        if id then
-            ItemDatabase[obj.Name] = id
-        end
-    end
-end
-local eggTypes = ReplicatedStorage:FindFirstChild("EggTypes")
-if eggTypes then
-    for _, obj in ipairs(eggTypes:GetChildren()) do
-        local id = extractIDFromObject(obj)
-        if id then
-            ItemDatabase[obj.Name] = id
-        end
-    end
-end
 purgeCollectibles = function()
     local folder = Workspace:FindFirstChild("Collectibles")
     if not folder then return 0 end
     local count = 0
     for _, child in ipairs(folder:GetChildren()) do
-        pcall(function() 
-            child:Destroy() 
-        end)
+        pcall(function() child:Destroy() end)
         count = count + 1
     end
     return count
@@ -121,9 +75,7 @@ if AUTO_CLEAR then
         if folder then
             purgeCollectibles()
             folder.ChildAdded:Connect(function(child)
-                pcall(function() 
-                    child:Destroy() 
-                end)
+                pcall(function() child:Destroy() end)
             end)
         end
     end)
@@ -137,16 +89,10 @@ local function create(class, properties, parent)
     return instance
 end
 local function round(object, radius)
-    create("UICorner", {
-        CornerRadius = UDim.new(0, radius)
-    }, object)
+    create("UICorner", { CornerRadius = UDim.new(0, radius) }, object)
 end
 local function stroke(object, color, transparency)
-    create("UIStroke", {
-        Color = color,
-        Transparency = transparency or 0,
-        Thickness = 1
-    }, object)
+    create("UIStroke", { Color = color, Transparency = transparency or 0, Thickness = 1 }, object)
 end
 local ScreenGui = create("ScreenGui", {
     Name = "SproutCollectorGUI",
@@ -268,6 +214,12 @@ local SpeedHandle = create("Frame", {
     ZIndex = 2
 }, SpeedBar)
 round(SpeedHandle, 5)
+local SpeedButton = create("TextButton", {
+    Size = UDim2.new(1, 0, 1, 0),
+    BackgroundTransparency = 1,
+    Text = "",
+    ZIndex = 3
+}, SpeedBar)
 local IDPage = create("Frame", {
     Size = UDim2.new(1, 0, 1, -60),
     Position = UDim2.fromOffset(0, 60),
@@ -307,15 +259,8 @@ local List = create("ScrollingFrame", {
     AutomaticCanvasSize = Enum.AutomaticSize.Y
 }, IDPage)
 round(List, 7)
-create("UIListLayout", {
-    Padding = UDim.new(0, 4)
-}, List)
-create("UIPadding", {
-    PaddingTop = UDim.new(0, 5),
-    PaddingBottom = UDim.new(0, 5),
-    PaddingLeft = UDim.new(0, 5),
-    PaddingRight = UDim.new(0, 5)
-}, List)
+create("UIListLayout", { Padding = UDim.new(0, 4) }, List)
+create("UIPadding", { PaddingTop = UDim.new(0, 5), PaddingBottom = UDim.new(0, 5), PaddingLeft = UDim.new(0, 5), PaddingRight = UDim.new(0, 5) }, List)
 local Footer = create("TextLabel", {
     Size = UDim2.new(1, 0, 0, 30),
     Position = UDim2.new(0, 0, 1, -30),
@@ -342,15 +287,8 @@ local FieldsList = create("ScrollingFrame", {
     AutomaticCanvasSize = Enum.AutomaticSize.Y
 }, FieldsPage)
 round(FieldsList, 7)
-create("UIListLayout", {
-    Padding = UDim.new(0, 4)
-}, FieldsList)
-create("UIPadding", {
-    PaddingTop = UDim.new(0, 5),
-    PaddingBottom = UDim.new(0, 5),
-    PaddingLeft = UDim.new(0, 5),
-    PaddingRight = UDim.new(0, 5)
-}, FieldsList)
+create("UIListLayout", { Padding = UDim.new(0, 4) }, FieldsList)
+create("UIPadding", { PaddingTop = UDim.new(0, 5), PaddingBottom = UDim.new(0, 5), PaddingLeft = UDim.new(0, 5), PaddingRight = UDim.new(0, 5) }, FieldsList)
 local FieldsFooter = create("TextLabel", {
     Size = UDim2.new(1, 0, 0, 30),
     Position = UDim2.new(0, 0, 1, -30),
@@ -371,7 +309,6 @@ Header.InputBegan:Connect(function(input)
         dragging = true
         dragStart = input.Position
         startPosition = Main.Position
-        
         input.Changed:Connect(function()
             if input.UserInputState == Enum.UserInputState.End then
                 dragging = false
@@ -388,12 +325,7 @@ end)
 UserInputService.InputChanged:Connect(function(input)
     if dragging and input == dragInput then
         local delta = input.Position - dragStart
-        Main.Position = UDim2.new(
-            startPosition.X.Scale, 
-            startPosition.X.Offset + delta.X, 
-            startPosition.Y.Scale, 
-            startPosition.Y.Offset + delta.Y
-        )
+        Main.Position = UDim2.new(startPosition.X.Scale, startPosition.X.Offset + delta.X, startPosition.Y.Scale, startPosition.Y.Offset + delta.Y)
     end
 end)
 local minimized = false
@@ -401,7 +333,6 @@ Minimize.MouseButton1Click:Connect(function()
     minimized = not minimized
     Content.Visible = not minimized
     TabBar.Visible = not minimized
-    
     if minimized then
         Main.Size = UDim2.fromOffset(280, 40)
         Minimize.Text = "+"
@@ -485,20 +416,23 @@ refreshSpeedUI = function()
     SpeedLabel.Text = "Fly speed: " .. FlySpeed .. " studs/s"
 end
 local draggingSpeed = false
-SpeedBar.InputBegan:Connect(function(input) 
-    if input.UserInputType == Enum.UserInputType.MouseButton1 then 
-        draggingSpeed = true 
+SpeedButton.InputBegan:Connect(function(input) 
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then 
+        draggingSpeed = true
+        local ratio = math.clamp((input.Position.X - SpeedBar.AbsolutePosition.X) / SpeedBar.AbsoluteSize.X, 0, 1)
+        FlySpeed = math.floor(SPEED_MIN + ratio * (SPEED_MAX - SPEED_MIN) + 0.5)
+        refreshSpeedUI()
     end 
 end)
 UserInputService.InputChanged:Connect(function(input)
-    if draggingSpeed and input.UserInputType == Enum.UserInputType.MouseMovement then
+    if draggingSpeed and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
         local ratio = math.clamp((input.Position.X - SpeedBar.AbsolutePosition.X) / SpeedBar.AbsoluteSize.X, 0, 1)
         FlySpeed = math.floor(SPEED_MIN + ratio * (SPEED_MAX - SPEED_MIN) + 0.5)
         refreshSpeedUI()
     end
 end)
 UserInputService.InputEnded:Connect(function(input) 
-    if input.UserInputType == Enum.UserInputType.MouseButton1 and draggingSpeed then 
+    if (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) and draggingSpeed then 
         draggingSpeed = false
         saveConfig() 
     end 
@@ -520,7 +454,6 @@ refreshItemsList = function()
     for i, name in ipairs(sortedNames) do
         local id = ItemDatabase[name]
         local isSelected = SelectedNames[name] == true
-        
         local Row = create("Frame", {
             Size = UDim2.new(1, -2, 0, 26),
             BackgroundColor3 = Color3.fromRGB(37, 44, 57),
@@ -564,18 +497,14 @@ refreshItemsList = function()
         end)
     end
 end
-SearchBar:GetPropertyChangedSignal("Text"):Connect(function() 
-    refreshItemsList() 
-end)
+SearchBar:GetPropertyChangedSignal("Text"):Connect(function() refreshItemsList() end)
 ClearBtn.MouseButton1Click:Connect(function() 
     purgeCollectibles()
     Footer.Text = "Collectibles cleared." 
 end)
 refreshFieldsList = function()
     for _, child in ipairs(FieldsList:GetChildren()) do 
-        if child:IsA("Frame") then 
-            child:Destroy() 
-        end 
+        if child:IsA("Frame") then child:Destroy() end 
     end
     local folder = Workspace:FindFirstChild("FlowerZones")
     if not folder then 
@@ -667,7 +596,6 @@ local function getFlowerZones()
     local folder = Workspace:FindFirstChild("FlowerZones")
     local zones = {}
     if not folder then return zones end
-    
     for _, zone in ipairs(folder:GetChildren()) do 
         if isFieldEnabled(zone.Name) then 
             local bounds = getBounds(zone)
@@ -748,9 +676,7 @@ local function flyTo(character, root, targetCF, speed, cancelCheck)
         local elapsed = os.clock() - startTime
         local alpha = math.min(elapsed / duration, 1)
         local pos = startPos:Lerp(endPos, alpha)
-        pcall(function() 
-            root.CFrame = CFrame.new(pos, endPos) 
-        end)
+        pcall(function() root.CFrame = CFrame.new(pos, endPos) end)
         root.AssemblyLinearVelocity = Vector3.zero
         root.AssemblyAngularVelocity = Vector3.zero
         if alpha >= 1 then break end
@@ -885,4 +811,4 @@ refreshSpeedUI()
 updateStatus()
 refreshItemsList()
 Footer.Text = "Ready."
-print("[Sprout Collector] Loaded with Fallback List.")
+print("[Sprout Collector] Loaded strictly with Fallback List.")
