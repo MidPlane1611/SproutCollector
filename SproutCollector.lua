@@ -493,7 +493,7 @@ refreshItemsList = function()
             saveConfig()
         end)
         local Toggle = create("TextButton", {
-            Size = UDim2.fromOffset(48, 20),
+            Size = UDim2.new(0, 48, 0, 20),
             Position = UDim2.new(1, -52, 0.5, -10),
             BackgroundColor3 = isSelected and Color3.fromRGB(35, 145, 85) or Color3.fromRGB(120, 45, 50),
             Text = isSelected and "ON" or "OFF",
@@ -697,6 +697,17 @@ local function flyTo(character, root, targetCF, speed, cancelCheck)
         local elapsed = os.clock() - startTime
         local alpha = math.min(elapsed / duration, 1)
         local pos = startPos:Lerp(endPos, alpha)
+        
+        -- ЗАЩИТА ОТ ВЫЛЕТА ЗА КАРТУ
+        if pos.X ~= pos.X or pos.Y ~= pos.Y or pos.Z ~= pos.Z then
+            success = false
+            break
+        end
+        if pos.Y < -500 then
+            success = false
+            break
+        end
+        
         pcall(function() root.CFrame = CFrame.new(pos, endPos) end)
         root.AssemblyLinearVelocity = Vector3.zero
         root.AssemblyAngularVelocity = Vector3.zero
@@ -753,7 +764,14 @@ local function scanPass(token)
                 if ignoreThis or intersectsFlowerZone(object, zones) then
                     local cf = getTargetCFrame(object)
                     if cf then 
-                        table.insert(targets, {object = object, cf = cf}) 
+                        local targetPos = cf.Position
+                        -- ЗАЩИТА ОТ БИТЫХ КООРДИНАТ И СЛИШКОМ ДАЛЕКИХ ТОКЕНОВ
+                        if targetPos.X == targetPos.X and targetPos.Y == targetPos.Y and targetPos.Z == targetPos.Z then
+                            local dist = (targetPos - root.Position).Magnitude
+                            if dist < 3000 then
+                                table.insert(targets, {object = object, cf = cf}) 
+                            end
+                        end
                     end
                 end
             end
