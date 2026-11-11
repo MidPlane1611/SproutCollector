@@ -13,7 +13,6 @@ local AUTO_CLEAR = true
 local SPEED_MIN = 20
 local SPEED_MAX = 800
 local FlySpeed = 60
-local CurrentFieldOnly = false
 local SETTINGS_PANEL_HEIGHT = 110
 local MAIN_BASE_HEIGHT = 340
 local settingsOpen = false
@@ -161,7 +160,7 @@ local SettingsPanel = create("Frame", {
     ClipsDescendants = true
 }, Main)
 local Status = create("TextButton", {
-    Size = UDim2.new(0.5, -6, 0, 30),
+    Size = UDim2.new(1, -16, 0, 30),
     Position = UDim2.fromOffset(8, 8),
     BackgroundColor3 = Color3.fromRGB(150, 45, 50),
     Text = "OFF",
@@ -170,16 +169,6 @@ local Status = create("TextButton", {
     Font = Enum.Font.GothamBold
 }, SettingsPanel)
 round(Status, 7)
-local FieldBtn = create("TextButton", {
-    Size = UDim2.new(0.5, -6, 0, 30),
-    Position = UDim2.new(0.5, -2, 0, 8),
-    BackgroundColor3 = Color3.fromRGB(60, 60, 70),
-    Text = "FIELD: OFF",
-    TextColor3 = Color3.new(1, 1, 1),
-    TextSize = 10,
-    Font = Enum.Font.GothamBold
-}, SettingsPanel)
-round(FieldBtn, 7)
 local SpeedControl = create("Frame", {
     Size = UDim2.new(1, -16, 0, 22),
     Position = UDim2.fromOffset(8, 46),
@@ -188,7 +177,7 @@ local SpeedControl = create("Frame", {
 local SpeedLabel = create("TextLabel", {
     Size = UDim2.new(1, 0, 0, 10),
     BackgroundTransparency = 1,
-    Text = "Fly speed: " .. FlySpeed .. " studs/s",
+    Text = "Global speed: " .. FlySpeed .. " studs/s",
     TextColor3 = Color3.fromRGB(160, 175, 200),
     TextSize = 9,
     Font = Enum.Font.Gotham,
@@ -229,7 +218,7 @@ local HoldControl = create("Frame", {
 local HoldLabel = create("TextLabel", {
     Size = UDim2.new(1, 0, 0, 10),
     BackgroundTransparency = 1,
-    Text = "Hold time: " .. HOVER_AT_TARGET .. "s",
+    Text = "Global hold: " .. HOVER_AT_TARGET .. "s",
     TextColor3 = Color3.fromRGB(160, 175, 200),
     TextSize = 9,
     Font = Enum.Font.Gotham,
@@ -435,25 +424,23 @@ TriangleBtn.MouseButton1Click:Connect(function()
     TweenService:Create(TriangleBtn, ti, { Rotation = targetRotation }):Play()
     saveConfig()
 end)
-FieldBtn.MouseButton1Click:Connect(function()
-    CurrentFieldOnly = not CurrentFieldOnly
-    if CurrentFieldOnly then
-        FieldBtn.Text = "FIELD: ON"
-        FieldBtn.BackgroundColor3 = Color3.fromRGB(35, 145, 85)
-    else
-        FieldBtn.Text = "FIELD: OFF"
-        FieldBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
-    end
-    saveConfig()
-end)
-local SelectedNames = {}
-local SelectedIDs = {}
-local ItemIgnoreZones = {}
+local ItemConfigs = {}
 local fieldSelection = {}
 local function isFieldEnabled(name)
     local explicit = fieldSelection[name]
     if explicit ~= nil then return explicit end
     return true
+end
+local function ensureConfig(name)
+    if not ItemConfigs[name] then
+        ItemConfigs[name] = {
+            enabled = false,
+            ignoreZones = false,
+            collectInField = false,
+            holdTime = HOVER_AT_TARGET
+        }
+    end
+    return ItemConfigs[name]
 end
 if type(isfile) == "function" and type(readfile) == "function" then
     if isfile(SAVE_FILE) then
@@ -468,17 +455,14 @@ if type(isfile) == "function" and type(readfile) == "function" then
 end
 if loadedData then
     if type(loadedData.items) == "table" then
-        for _, name in ipairs(loadedData.items) do
-            if ItemDatabase[name] then 
-                SelectedNames[name] = true
-                SelectedIDs[ItemDatabase[name]] = true 
-            end
-        end
-    end
-    if type(loadedData.ignoreZones) == "table" then
-        for _, name in ipairs(loadedData.ignoreZones) do
-            if ItemDatabase[name] then
-                ItemIgnoreZones[name] = true
+        for name, conf in pairs(loadedData.items) do
+            if type(conf) == "table" and ItemDatabase[name] then
+                ItemConfigs[name] = {
+                    enabled = conf.enabled == true,
+                    ignoreZones = conf.ignoreZones == true,
+                    collectInField = conf.collectInField == true,
+                    holdTime = type(conf.holdTime) == "number" and conf.holdTime or HOVER_AT_TARGET
+                }
             end
         end
     end
@@ -494,11 +478,6 @@ if loadedData then
     end
     if type(loadedData.hoverDelay) == "number" then
         HOVER_AT_TARGET = math.clamp(loadedData.hoverDelay, HOLD_MIN, HOLD_MAX)
-    end
-    if loadedData.currentFieldOnly == true then
-        CurrentFieldOnly = true
-        FieldBtn.Text = "FIELD: ON"
-        FieldBtn.BackgroundColor3 = Color3.fromRGB(35, 145, 85)
     end
     if loadedData.settingsOpen == true then
         settingsOpen = true
@@ -518,21 +497,11 @@ saveConfig = function()
             if not isfolder(SAVE_FOLDER) then makefolder(SAVE_FOLDER) end 
         end) 
     end
-    local itemsList = {}
-    for name, _ in pairs(SelectedNames) do 
-        table.insert(itemsList, name) 
-    end
-    local ignoreList = {}
-    for name, val in pairs(ItemIgnoreZones) do
-        if val then table.insert(ignoreList, name) end
-    end
     local data = {
-        items = itemsList, 
-        ignoreZones = ignoreList,
+        items = ItemConfigs, 
         fields = fieldSelection, 
         speed = FlySpeed,
         hoverDelay = HOVER_AT_TARGET,
-        currentFieldOnly = CurrentFieldOnly,
         settingsOpen = settingsOpen,
         guiPosition = { 
             xScale = Main.Position.X.Scale, 
@@ -551,13 +520,13 @@ refreshSpeedUI = function()
     local ratio = (FlySpeed - SPEED_MIN) / (SPEED_MAX - SPEED_MIN)
     SpeedFill.Size = UDim2.new(ratio, 0, 1, 0)
     SpeedHandle.Position = UDim2.new(ratio, -5, 0.5, -7)
-    SpeedLabel.Text = "Fly speed: " .. FlySpeed .. " studs/s"
+    SpeedLabel.Text = "Global speed: " .. FlySpeed .. " studs/s"
 end
 refreshHoldUI = function()
     local ratio = (HOVER_AT_TARGET - HOLD_MIN) / (HOLD_MAX - HOLD_MIN)
     HoldFill.Size = UDim2.new(ratio, 0, 1, 0)
     HoldHandle.Position = UDim2.new(ratio, -5, 0.5, -7)
-    HoldLabel.Text = "Hold time: " .. string.format("%.1f", HOVER_AT_TARGET) .. "s"
+    HoldLabel.Text = "Global hold: " .. string.format("%.1f", HOVER_AT_TARGET) .. "s"
 end
 local draggingSpeed = false
 SpeedButton.InputBegan:Connect(function(input) 
@@ -603,6 +572,146 @@ UserInputService.InputEnded:Connect(function(input)
         saveConfig() 
     end 
 end)
+local openMenus = {}
+local tweenInfo = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local function buildItemRow(name, index, parent)
+    local conf = ensureConfig(name)
+    local isOpen = openMenus[name] == true
+    local baseHeight = 26
+    local expandedHeight = 110
+    local targetHeight = isOpen and expandedHeight or baseHeight
+    local Container = create("Frame", {
+        Size = UDim2.new(1, -2, 0, targetHeight),
+        BackgroundColor3 = Color3.fromRGB(37, 44, 57),
+        LayoutOrder = index,
+        ClipsDescendants = true
+    }, parent)
+    round(Container, 5)
+    local MainRow = create("Frame", {
+        Size = UDim2.new(1, 0, 0, 26),
+        BackgroundTransparency = 1
+    }, Container)
+    create("TextLabel", {
+        Size = UDim2.new(1, -40, 1, 0),
+        Position = UDim2.fromOffset(8, 0),
+        BackgroundTransparency = 1,
+        Text = name,
+        TextColor3 = Color3.fromRGB(225, 232, 245),
+        TextSize = 11,
+        Font = Enum.Font.Gotham,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextTruncate = Enum.TextTruncate.AtEnd
+    }, MainRow)
+    local ItemTriangle = create("TextButton", {
+        Size = UDim2.fromOffset(24, 24),
+        Position = UDim2.new(1, -28, 0.5, -12),
+        BackgroundTransparency = 1,
+        Text = "▶",
+        TextColor3 = Color3.fromRGB(200, 210, 225),
+        TextSize = 14,
+        Font = Enum.Font.GothamBold,
+        Rotation = isOpen and 90 or 0
+    }, MainRow)
+    local Settings = create("Frame", {
+        Size = UDim2.new(1, 0, 0, expandedHeight - baseHeight),
+        Position = UDim2.fromOffset(0, baseHeight),
+        BackgroundTransparency = 1
+    }, Container)
+    local Toggle = create("TextButton", {
+        Size = UDim2.new(0.5, -6, 0, 24),
+        Position = UDim2.fromOffset(4, 4),
+        BackgroundColor3 = conf.enabled and Color3.fromRGB(35, 145, 85) or Color3.fromRGB(120, 45, 50),
+        Text = conf.enabled and "ENABLED" or "DISABLED",
+        TextColor3 = Color3.new(1, 1, 1),
+        TextSize = 9,
+        Font = Enum.Font.GothamBold
+    }, Settings)
+    round(Toggle, 4)
+    local ZoneBtn = create("TextButton", {
+        Size = UDim2.new(0.5, -6, 0, 24),
+        Position = UDim2.new(0.5, 2, 0, 4),
+        BackgroundColor3 = conf.ignoreZones and Color3.fromRGB(65, 115, 210) or Color3.fromRGB(80, 80, 90),
+        Text = conf.ignoreZones and "IGNORE ZONE" or "USE ZONE",
+        TextColor3 = Color3.new(1, 1, 1),
+        TextSize = 9,
+        Font = Enum.Font.GothamBold
+    }, Settings)
+    round(ZoneBtn, 4)
+    local FieldBtnItem = create("TextButton", {
+        Size = UDim2.new(1, -8, 0, 22),
+        Position = UDim2.fromOffset(4, 32),
+        BackgroundColor3 = conf.collectInField and Color3.fromRGB(35, 145, 85) or Color3.fromRGB(80, 80, 90),
+        Text = conf.collectInField and "COLLECT IN MY FIELD: ON" or "COLLECT IN MY FIELD: OFF",
+        TextColor3 = Color3.new(1, 1, 1),
+        TextSize = 9,
+        Font = Enum.Font.GothamBold
+    }, Settings)
+    round(FieldBtnItem, 4)
+    local ItemHoldLabel = create("TextLabel", {
+        Size = UDim2.new(1, -80, 0, 20),
+        Position = UDim2.fromOffset(5, 58),
+        BackgroundTransparency = 1,
+        Text = "Hold: " .. string.format("%.1f", conf.holdTime) .. "s",
+        TextColor3 = Color3.fromRGB(160, 175, 200),
+        TextSize = 10,
+        Font = Enum.Font.Gotham,
+        TextXAlignment = Enum.TextXAlignment.Left
+    }, Settings)
+    local MinusBtn = create("TextButton", {
+        Size = UDim2.fromOffset(30, 20),
+        Position = UDim2.new(1, -70, 0, 58),
+        BackgroundColor3 = Color3.fromRGB(48, 57, 73),
+        Text = "-",
+        TextColor3 = Color3.new(1, 1, 1),
+        TextSize = 12,
+        Font = Enum.Font.GothamBold
+    }, Settings)
+    round(MinusBtn, 4)
+    local PlusBtn = create("TextButton", {
+        Size = UDim2.fromOffset(30, 20),
+        Position = UDim2.new(1, -35, 0, 58),
+        BackgroundColor3 = Color3.fromRGB(48, 57, 73),
+        Text = "+",
+        TextColor3 = Color3.new(1, 1, 1),
+        TextSize = 12,
+        Font = Enum.Font.GothamBold
+    }, Settings)
+    round(PlusBtn, 4)
+    ItemTriangle.MouseButton1Click:Connect(function()
+        openMenus[name] = not openMenus[name]
+        local nowOpen = openMenus[name]
+        TweenService:Create(Container, tweenInfo, { Size = UDim2.new(1, -2, 0, nowOpen and expandedHeight or baseHeight) }):Play()
+        TweenService:Create(ItemTriangle, tweenInfo, { Rotation = nowOpen and 90 or 0 }):Play()
+    end)
+    Toggle.MouseButton1Click:Connect(function()
+        conf.enabled = not conf.enabled
+        Toggle.BackgroundColor3 = conf.enabled and Color3.fromRGB(35, 145, 85) or Color3.fromRGB(120, 45, 50)
+        Toggle.Text = conf.enabled and "ENABLED" or "DISABLED"
+        saveConfig()
+    end)
+    ZoneBtn.MouseButton1Click:Connect(function()
+        conf.ignoreZones = not conf.ignoreZones
+        ZoneBtn.BackgroundColor3 = conf.ignoreZones and Color3.fromRGB(65, 115, 210) or Color3.fromRGB(80, 80, 90)
+        ZoneBtn.Text = conf.ignoreZones and "IGNORE ZONE" or "USE ZONE"
+        saveConfig()
+    end)
+    FieldBtnItem.MouseButton1Click:Connect(function()
+        conf.collectInField = not conf.collectInField
+        FieldBtnItem.BackgroundColor3 = conf.collectInField and Color3.fromRGB(35, 145, 85) or Color3.fromRGB(80, 80, 90)
+        FieldBtnItem.Text = conf.collectInField and "COLLECT IN MY FIELD: ON" or "COLLECT IN MY FIELD: OFF"
+        saveConfig()
+    end)
+    MinusBtn.MouseButton1Click:Connect(function()
+        conf.holdTime = math.max(HOLD_MIN, math.floor((conf.holdTime - 0.1) * 10 + 0.5) / 10)
+        ItemHoldLabel.Text = "Hold: " .. string.format("%.1f", conf.holdTime) .. "s"
+        saveConfig()
+    end)
+    PlusBtn.MouseButton1Click:Connect(function()
+        conf.holdTime = math.min(HOLD_MAX, math.floor((conf.holdTime + 0.1) * 10 + 0.5) / 10)
+        ItemHoldLabel.Text = "Hold: " .. string.format("%.1f", conf.holdTime) .. "s"
+        saveConfig()
+    end)
+end
 refreshItemsList = function()
     for _, child in ipairs(List:GetChildren()) do 
         if child:IsA("Frame") then 
@@ -618,65 +727,7 @@ refreshItemsList = function()
     end
     table.sort(sortedNames)
     for i, name in ipairs(sortedNames) do
-        local id = ItemDatabase[name]
-        local isSelected = SelectedNames[name] == true
-        local isIgnoring = ItemIgnoreZones[name] == true
-        local Row = create("Frame", {
-            Size = UDim2.new(1, -2, 0, 26),
-            BackgroundColor3 = Color3.fromRGB(37, 44, 57),
-            LayoutOrder = i
-        }, List)
-        round(Row, 5)
-        create("TextLabel", {
-            Size = UDim2.new(1, -85, 1, 0),
-            Position = UDim2.fromOffset(8, 0),
-            BackgroundTransparency = 1,
-            Text = name,
-            TextColor3 = Color3.fromRGB(225, 232, 245),
-            TextSize = 11,
-            Font = Enum.Font.Gotham,
-            TextXAlignment = Enum.TextXAlignment.Left,
-            TextTruncate = Enum.TextTruncate.AtEnd
-        }, Row)
-        local ZoneBtn = create("TextButton", {
-            Size = UDim2.fromOffset(24, 20),
-            Position = UDim2.new(1, -80, 0.5, -10),
-            BackgroundColor3 = isIgnoring and Color3.fromRGB(65, 115, 210) or Color3.fromRGB(80, 80, 90),
-            Text = "Z",
-            TextColor3 = Color3.new(1, 1, 1),
-            TextSize = 10,
-            Font = Enum.Font.GothamBold
-        }, Row)
-        round(ZoneBtn, 4)
-        ZoneBtn.MouseButton1Click:Connect(function()
-            ItemIgnoreZones[name] = not ItemIgnoreZones[name]
-            ZoneBtn.BackgroundColor3 = ItemIgnoreZones[name] and Color3.fromRGB(65, 115, 210) or Color3.fromRGB(80, 80, 90)
-            saveConfig()
-        end)
-        local Toggle = create("TextButton", {
-            Size = UDim2.new(0, 48, 0, 20),
-            Position = UDim2.new(1, -52, 0.5, -10),
-            BackgroundColor3 = isSelected and Color3.fromRGB(35, 145, 85) or Color3.fromRGB(120, 45, 50),
-            Text = isSelected and "ON" or "OFF",
-            TextColor3 = Color3.new(1, 1, 1),
-            TextSize = 10,
-            Font = Enum.Font.GothamBold
-        }, Row)
-        round(Toggle, 4)
-        Toggle.MouseButton1Click:Connect(function()
-            if SelectedNames[name] then 
-                SelectedNames[name] = nil
-                SelectedIDs[id] = nil
-                Toggle.BackgroundColor3 = Color3.fromRGB(120, 45, 50)
-                Toggle.Text = "OFF"
-            else 
-                SelectedNames[name] = true
-                SelectedIDs[id] = true
-                Toggle.BackgroundColor3 = Color3.fromRGB(35, 145, 85)
-                Toggle.Text = "ON" 
-            end
-            saveConfig()
-        end)
+        buildItemRow(name, i, List)
     end
 end
 SearchBar:GetPropertyChangedSignal("Text"):Connect(function() refreshItemsList() end)
@@ -932,16 +983,7 @@ local function scanPass(token)
     if not root then return end
     local zones = getFlowerZones()
     if not isRunning(token) then return end
-    local currentFields = nil
-    local currentFieldName = nil
-    if CurrentFieldOnly then
-        currentFields = getCurrentFields(root.Position)
-        if #currentFields == 0 then
-            Footer.Text = "Not on any field."
-            return
-        end
-        currentFieldName = currentFields[1].name
-    end
+    local playerFields = nil
     local collectiblesFolder = Workspace:FindFirstChild("Collectibles")
     local objects = {}
     if collectiblesFolder then 
@@ -955,27 +997,31 @@ local function scanPass(token)
         scanned = scanned + 1
         if object.Name == "C" then
             local id = getColorMapID(object)
-            if id and SelectedIDs[id] then
-                matchedID = matchedID + 1
-                local cf = getTargetCFrame(object)
-                if cf then 
-                    local targetPos = cf.Position
-                    if isFinite(targetPos.X) and isFinite(targetPos.Y) and isFinite(targetPos.Z) and targetPos.Y > -50 and targetPos.Y < 500 then
-                        local dist = (targetPos - root.Position).Magnitude
-                        if isFinite(dist) and dist < 3000 then
-                            local shouldCollect = false
-                            if CurrentFieldOnly then
-                                local inField = isPointInAnyField(targetPos, currentFields)
-                                if inField then shouldCollect = true end
-                            else
-                                local itemName = IDToName[id]
-                                local ignoreThis = itemName and ItemIgnoreZones[itemName]
-                                if ignoreThis or intersectsFlowerZone(object, zones) then
+            if id then
+                local itemName = IDToName[id]
+                local conf = itemName and ensureConfig(itemName)
+                if conf and conf.enabled then
+                    matchedID = matchedID + 1
+                    local cf = getTargetCFrame(object)
+                    if cf then 
+                        local targetPos = cf.Position
+                        if isFinite(targetPos.X) and isFinite(targetPos.Y) and isFinite(targetPos.Z) and targetPos.Y > -50 and targetPos.Y < 500 then
+                            local dist = (targetPos - root.Position).Magnitude
+                            if isFinite(dist) and dist < 3000 then
+                                local shouldCollect = false
+                                if conf.collectInField then
+                                    if not playerFields then
+                                        playerFields = getCurrentFields(root.Position)
+                                    end
+                                    if #playerFields > 0 and isPointInAnyField(targetPos, playerFields) then
+                                        shouldCollect = true
+                                    end
+                                elseif conf.ignoreZones or intersectsFlowerZone(object, zones) then
                                     shouldCollect = true
                                 end
-                            end
-                            if shouldCollect then
-                                table.insert(targets, {object = object, cf = cf}) 
+                                if shouldCollect then
+                                    table.insert(targets, {object = object, cf = cf, holdTime = conf.holdTime}) 
+                                end
                             end
                         end
                     end
@@ -984,26 +1030,16 @@ local function scanPass(token)
         end
     end
     if #targets == 0 then 
-        if CurrentFieldOnly then
-            Footer.Text = string.format("None on %s | scan %d", currentFieldName or "?", scanned)
-        else
-            Footer.Text = string.format("None | scan %d, id %d", scanned, matchedID) 
-        end
+        Footer.Text = string.format("None | scan %d, id %d", scanned, matchedID) 
         return 
     end
     HomePosition = root.CFrame
-    if CurrentFieldOnly then
-        Footer.Text = string.format("%d on %s...", #targets, currentFieldName or "?")
-    else
-        Footer.Text = "Flying to " .. #targets .. " target(s)..."
-    end
+    Footer.Text = "Flying to " .. #targets .. " target(s)..."
     for index, entry in ipairs(targets) do
         if not isRunning(token) or Player.Character ~= character or not root.Parent then break end
         if not entry.object.Parent then continue end
         Footer.Text = "Flying " .. index .. " / " .. #targets
-        
         flyTo(character, root, entry.cf, FlySpeed, function() return isRunning(token) end)
-        
         local targetPart = nil
         for _, child in ipairs(entry.object:GetDescendants()) do
             if child:IsA("BasePart") then targetPart = child break end
@@ -1015,8 +1051,7 @@ local function scanPass(token)
                 firetouchinterest(root, targetPart, 1)
             end)
         end
-        
-        local holdEndTime = os.clock() + HOVER_AT_TARGET
+        local holdEndTime = os.clock() + entry.holdTime
         while os.clock() < holdEndTime do
             if not isRunning(token) or not root.Parent then break end
             if not entry.object.Parent then break end
@@ -1027,7 +1062,6 @@ local function scanPass(token)
             root.AssemblyAngularVelocity = Vector3.zero
             task.wait()
         end
-        
         pcall(function()
             if entry.object and entry.object.Parent then
                 entry.object:Destroy()
@@ -1098,4 +1132,4 @@ refreshHoldUI()
 updateStatus()
 refreshItemsList()
 Footer.Text = "Ready."
-print("[Sprout Collector] Loaded strictly with Fallback List.")
+print("[Sprout Collector] Loaded with accordion items.")
