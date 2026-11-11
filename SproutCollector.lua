@@ -2,14 +2,21 @@ local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local UserInputService = game:GetService("UserInputService")
 local HttpService = game:GetService("HttpService")
+local TweenService = game:GetService("TweenService")
 local Player = Players.LocalPlayer
 local PlayerGui = Player:WaitForChild("PlayerGui")
 local SCAN_INTERVAL = 1
+local HOLD_MIN = 0.1
+local HOLD_MAX = 2.0
 local HOVER_AT_TARGET = 0.3
 local AUTO_CLEAR = true
 local SPEED_MIN = 20
 local SPEED_MAX = 800
 local FlySpeed = 60
+local CurrentFieldOnly = false
+local SETTINGS_PANEL_HEIGHT = 110
+local MAIN_BASE_HEIGHT = 340
+local settingsOpen = false
 local FallbackItems = {
     ["Basic Egg"] = "1471846464", ["Silver Egg"] = "1471848094", ["Gold Egg"] = "1471849394",
     ["Royal Jelly"] = "1471882621", ["Mythic Egg"] = "4520739302", ["Diamond Egg"] = "1471850677",
@@ -46,6 +53,7 @@ local loadedData
 local refreshFieldsList
 local purgeCollectibles
 local refreshSpeedUI
+local refreshHoldUI
 local refreshItemsList
 local ItemDatabase = {}
 local IDToName = {}
@@ -94,10 +102,11 @@ local ScreenGui = create("ScreenGui", {
     IgnoreGuiInset = true
 }, PlayerGui)
 local Main = create("Frame", {
-    Size = UDim2.fromOffset(280, 340),
+    Size = UDim2.fromOffset(280, MAIN_BASE_HEIGHT),
     Position = UDim2.new(0.5, -140, 0.5, -170),
     BackgroundColor3 = Color3.fromRGB(20, 23, 31),
-    BorderSizePixel = 0
+    BorderSizePixel = 0,
+    ClipsDescendants = true
 }, ScreenGui)
 round(Main, 10)
 stroke(Main, Color3.fromRGB(65, 75, 95))
@@ -114,7 +123,7 @@ create("Frame", {
     BorderSizePixel = 0
 }, Header)
 create("TextLabel", {
-    Size = UDim2.new(1, -80, 1, 0),
+    Size = UDim2.new(1, -110, 1, 0),
     Position = UDim2.fromOffset(12, 0),
     BackgroundTransparency = 1,
     Text = "SPROUT COLLECTOR",
@@ -122,6 +131,17 @@ create("TextLabel", {
     TextSize = 13,
     Font = Enum.Font.GothamBold,
     TextXAlignment = Enum.TextXAlignment.Left
+}, Header)
+local TriangleBtn = create("TextButton", {
+    Size = UDim2.fromOffset(28, 28),
+    Position = UDim2.new(1, -60, 0, 20),
+    AnchorPoint = Vector2.new(0.5, 0.5),
+    BackgroundTransparency = 1,
+    Text = "▼",
+    TextColor3 = Color3.fromRGB(200, 210, 225),
+    TextSize = 18,
+    Font = Enum.Font.GothamBold,
+    Rotation = 90
 }, Header)
 local Minimize = create("TextButton", {
     Size = UDim2.fromOffset(24, 24),
@@ -133,52 +153,38 @@ local Minimize = create("TextButton", {
     Font = Enum.Font.GothamBold
 }, Header)
 round(Minimize, 6)
-local TabBar = create("Frame", {
-    Size = UDim2.new(1, 0, 0, 28),
+local SettingsPanel = create("Frame", {
+    Size = UDim2.new(1, 0, 0, 0),
     Position = UDim2.fromOffset(0, 40),
     BackgroundColor3 = Color3.fromRGB(24, 28, 37),
-    BorderSizePixel = 0
-}, Main)
-local IDsTab = create("TextButton", {
-    Size = UDim2.new(0.5, -3, 1, -6),
-    Position = UDim2.fromOffset(3, 3),
-    BackgroundColor3 = Color3.fromRGB(65, 115, 210),
-    Text = "ITEMS",
-    TextColor3 = Color3.new(1, 1, 1),
-    TextSize = 11,
-    Font = Enum.Font.GothamBold
-}, TabBar)
-round(IDsTab, 5)
-local FieldsTab = create("TextButton", {
-    Size = UDim2.new(0.5, -3, 1, -6),
-    Position = UDim2.new(0.5, 0, 0, 3),
-    BackgroundColor3 = Color3.fromRGB(42, 50, 65),
-    Text = "FIELDS",
-    TextColor3 = Color3.fromRGB(200, 210, 225),
-    TextSize = 11,
-    Font = Enum.Font.GothamBold
-}, TabBar)
-round(FieldsTab, 5)
-local Content = create("Frame", {
-    Size = UDim2.new(1, -16, 1, -76),
-    Position = UDim2.fromOffset(8, 72),
-    BackgroundTransparency = 1
+    BorderSizePixel = 0,
+    ClipsDescendants = true
 }, Main)
 local Status = create("TextButton", {
-    Size = UDim2.new(1, 0, 0, 30),
-    Position = UDim2.fromOffset(0, 0),
+    Size = UDim2.new(0.5, -6, 0, 30),
+    Position = UDim2.fromOffset(8, 8),
     BackgroundColor3 = Color3.fromRGB(150, 45, 50),
     Text = "OFF",
     TextColor3 = Color3.new(1, 1, 1),
     TextSize = 13,
     Font = Enum.Font.GothamBold
-}, Content)
+}, SettingsPanel)
 round(Status, 7)
+local FieldBtn = create("TextButton", {
+    Size = UDim2.new(0.5, -6, 0, 30),
+    Position = UDim2.new(0.5, -2, 0, 8),
+    BackgroundColor3 = Color3.fromRGB(60, 60, 70),
+    Text = "FIELD: OFF",
+    TextColor3 = Color3.new(1, 1, 1),
+    TextSize = 10,
+    Font = Enum.Font.GothamBold
+}, SettingsPanel)
+round(FieldBtn, 7)
 local SpeedControl = create("Frame", {
-    Size = UDim2.new(1, 0, 0, 22),
-    Position = UDim2.fromOffset(0, 34),
+    Size = UDim2.new(1, -16, 0, 22),
+    Position = UDim2.fromOffset(8, 46),
     BackgroundTransparency = 1
-}, Content)
+}, SettingsPanel)
 local SpeedLabel = create("TextLabel", {
     Size = UDim2.new(1, 0, 0, 10),
     BackgroundTransparency = 1,
@@ -215,9 +221,81 @@ local SpeedButton = create("TextButton", {
     Text = "",
     ZIndex = 3
 }, SpeedBar)
+local HoldControl = create("Frame", {
+    Size = UDim2.new(1, -16, 0, 22),
+    Position = UDim2.fromOffset(8, 76),
+    BackgroundTransparency = 1
+}, SettingsPanel)
+local HoldLabel = create("TextLabel", {
+    Size = UDim2.new(1, 0, 0, 10),
+    BackgroundTransparency = 1,
+    Text = "Hold time: " .. HOVER_AT_TARGET .. "s",
+    TextColor3 = Color3.fromRGB(160, 175, 200),
+    TextSize = 9,
+    Font = Enum.Font.Gotham,
+    TextXAlignment = Enum.TextXAlignment.Left
+}, HoldControl)
+local HoldBar = create("Frame", {
+    Size = UDim2.new(1, 0, 0, 8),
+    Position = UDim2.fromOffset(0, 12),
+    BackgroundColor3 = Color3.fromRGB(40, 48, 62),
+    BorderSizePixel = 0
+}, HoldControl)
+round(HoldBar, 4)
+local HoldFill = create("Frame", {
+    Size = UDim2.new((HOVER_AT_TARGET - HOLD_MIN) / (HOLD_MAX - HOLD_MIN), 0, 1, 0),
+    BackgroundColor3 = Color3.fromRGB(65, 115, 210),
+    BorderSizePixel = 0
+}, HoldBar)
+round(HoldFill, 4)
+local HoldHandle = create("Frame", {
+    Size = UDim2.fromOffset(10, 14),
+    Position = UDim2.new((HOVER_AT_TARGET - HOLD_MIN) / (HOLD_MAX - HOLD_MIN), -5, 0.5, -7),
+    BackgroundColor3 = Color3.fromRGB(240, 240, 245),
+    BorderSizePixel = 0,
+    ZIndex = 2
+}, HoldBar)
+round(HoldHandle, 5)
+local HoldButton = create("TextButton", {
+    Size = UDim2.new(1, 0, 1, 0),
+    BackgroundTransparency = 1,
+    Text = "",
+    ZIndex = 3
+}, HoldBar)
+local TabBar = create("Frame", {
+    Size = UDim2.new(1, 0, 0, 28),
+    Position = UDim2.fromOffset(0, 40),
+    BackgroundColor3 = Color3.fromRGB(24, 28, 37),
+    BorderSizePixel = 0
+}, Main)
+local IDsTab = create("TextButton", {
+    Size = UDim2.new(0.5, -3, 1, -6),
+    Position = UDim2.fromOffset(3, 3),
+    BackgroundColor3 = Color3.fromRGB(65, 115, 210),
+    Text = "ITEMS",
+    TextColor3 = Color3.new(1, 1, 1),
+    TextSize = 11,
+    Font = Enum.Font.GothamBold
+}, TabBar)
+round(IDsTab, 5)
+local FieldsTab = create("TextButton", {
+    Size = UDim2.new(0.5, -3, 1, -6),
+    Position = UDim2.new(0.5, 0, 0, 3),
+    BackgroundColor3 = Color3.fromRGB(42, 50, 65),
+    Text = "FIELDS",
+    TextColor3 = Color3.fromRGB(200, 210, 225),
+    TextSize = 11,
+    Font = Enum.Font.GothamBold
+}, TabBar)
+round(FieldsTab, 5)
+local Content = create("Frame", {
+    Size = UDim2.new(1, -16, 0, 260),
+    Position = UDim2.fromOffset(8, 72),
+    BackgroundTransparency = 1
+}, Main)
 local IDPage = create("Frame", {
-    Size = UDim2.new(1, 0, 1, -60),
-    Position = UDim2.fromOffset(0, 60),
+    Size = UDim2.new(1, 0, 1, 0),
+    Position = UDim2.fromOffset(0, 0),
     BackgroundTransparency = 1,
     Visible = true
 }, Content)
@@ -268,13 +346,13 @@ local Footer = create("TextLabel", {
     TextXAlignment = Enum.TextXAlignment.Left
 }, IDPage)
 local FieldsPage = create("Frame", {
-    Size = UDim2.new(1, 0, 1, -60),
-    Position = UDim2.fromOffset(0, 60),
+    Size = UDim2.new(1, 0, 1, 0),
+    Position = UDim2.fromOffset(0, 0),
     BackgroundTransparency = 1,
     Visible = false
 }, Content)
 local FieldsList = create("ScrollingFrame", {
-    Size = UDim2.new(1, 0, 1, -36),
+    Size = UDim2.new(1, 0, 1, -30),
     BackgroundColor3 = Color3.fromRGB(27, 32, 42),
     BorderSizePixel = 0,
     ScrollBarThickness = 4,
@@ -324,18 +402,49 @@ UserInputService.InputChanged:Connect(function(input)
     end
 end)
 local minimized = false
+local savedMainHeight = MAIN_BASE_HEIGHT
 Minimize.MouseButton1Click:Connect(function()
     minimized = not minimized
-    Content.Visible = not minimized
-    TabBar.Visible = not minimized
     if minimized then
+        savedMainHeight = Main.Size.Y.Offset
+        Content.Visible = false
+        TabBar.Visible = false
+        SettingsPanel.Visible = false
         Main.Size = UDim2.fromOffset(280, 40)
         Minimize.Text = "+"
     else
-        Main.Size = UDim2.fromOffset(280, 340)
+        Content.Visible = true
+        TabBar.Visible = true
+        SettingsPanel.Visible = true
+        Main.Size = UDim2.fromOffset(280, savedMainHeight)
         Minimize.Text = "−"
     end
     if saveConfig then saveConfig() end
+end)
+TriangleBtn.MouseButton1Click:Connect(function()
+    if minimized then return end
+    settingsOpen = not settingsOpen
+    local panelH = settingsOpen and SETTINGS_PANEL_HEIGHT or 0
+    local mainH = MAIN_BASE_HEIGHT + panelH
+    local targetRotation = settingsOpen and 0 or 90
+    local ti = TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+    TweenService:Create(Main, ti, { Size = UDim2.fromOffset(280, mainH) }):Play()
+    TweenService:Create(SettingsPanel, ti, { Size = UDim2.new(1, 0, 0, panelH) }):Play()
+    TweenService:Create(TabBar, ti, { Position = UDim2.fromOffset(0, 40 + panelH) }):Play()
+    TweenService:Create(Content, ti, { Position = UDim2.fromOffset(8, 72 + panelH) }):Play()
+    TweenService:Create(TriangleBtn, ti, { Rotation = targetRotation }):Play()
+    saveConfig()
+end)
+FieldBtn.MouseButton1Click:Connect(function()
+    CurrentFieldOnly = not CurrentFieldOnly
+    if CurrentFieldOnly then
+        FieldBtn.Text = "FIELD: ON"
+        FieldBtn.BackgroundColor3 = Color3.fromRGB(35, 145, 85)
+    else
+        FieldBtn.Text = "FIELD: OFF"
+        FieldBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
+    end
+    saveConfig()
 end)
 local SelectedNames = {}
 local SelectedIDs = {}
@@ -383,6 +492,24 @@ if loadedData then
     if type(loadedData.speed) == "number" then 
         FlySpeed = math.clamp(math.floor(loadedData.speed), SPEED_MIN, SPEED_MAX) 
     end
+    if type(loadedData.hoverDelay) == "number" then
+        HOVER_AT_TARGET = math.clamp(loadedData.hoverDelay, HOLD_MIN, HOLD_MAX)
+    end
+    if loadedData.currentFieldOnly == true then
+        CurrentFieldOnly = true
+        FieldBtn.Text = "FIELD: ON"
+        FieldBtn.BackgroundColor3 = Color3.fromRGB(35, 145, 85)
+    end
+    if loadedData.settingsOpen == true then
+        settingsOpen = true
+        local panelH = SETTINGS_PANEL_HEIGHT
+        local mainH = MAIN_BASE_HEIGHT + panelH
+        Main.Size = UDim2.fromOffset(280, mainH)
+        SettingsPanel.Size = UDim2.new(1, 0, 0, panelH)
+        TabBar.Position = UDim2.fromOffset(0, 40 + panelH)
+        Content.Position = UDim2.fromOffset(8, 72 + panelH)
+        TriangleBtn.Rotation = 0
+    end
 end
 saveConfig = function()
     if type(writefile) ~= "function" then return end
@@ -404,6 +531,9 @@ saveConfig = function()
         ignoreZones = ignoreList,
         fields = fieldSelection, 
         speed = FlySpeed,
+        hoverDelay = HOVER_AT_TARGET,
+        currentFieldOnly = CurrentFieldOnly,
+        settingsOpen = settingsOpen,
         guiPosition = { 
             xScale = Main.Position.X.Scale, 
             xOffset = Main.Position.X.Offset, 
@@ -422,6 +552,12 @@ refreshSpeedUI = function()
     SpeedFill.Size = UDim2.new(ratio, 0, 1, 0)
     SpeedHandle.Position = UDim2.new(ratio, -5, 0.5, -7)
     SpeedLabel.Text = "Fly speed: " .. FlySpeed .. " studs/s"
+end
+refreshHoldUI = function()
+    local ratio = (HOVER_AT_TARGET - HOLD_MIN) / (HOLD_MAX - HOLD_MIN)
+    HoldFill.Size = UDim2.new(ratio, 0, 1, 0)
+    HoldHandle.Position = UDim2.new(ratio, -5, 0.5, -7)
+    HoldLabel.Text = "Hold time: " .. string.format("%.1f", HOVER_AT_TARGET) .. "s"
 end
 local draggingSpeed = false
 SpeedButton.InputBegan:Connect(function(input) 
@@ -442,6 +578,28 @@ end)
 UserInputService.InputEnded:Connect(function(input) 
     if (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) and draggingSpeed then 
         draggingSpeed = false
+        saveConfig() 
+    end 
+end)
+local draggingHold = false
+HoldButton.InputBegan:Connect(function(input) 
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then 
+        draggingHold = true
+        local ratio = math.clamp((input.Position.X - HoldBar.AbsolutePosition.X) / HoldBar.AbsoluteSize.X, 0, 1)
+        HOVER_AT_TARGET = math.floor((HOLD_MIN + ratio * (HOLD_MAX - HOLD_MIN)) * 10 + 0.5) / 10
+        refreshHoldUI()
+    end 
+end)
+UserInputService.InputChanged:Connect(function(input)
+    if draggingHold and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        local ratio = math.clamp((input.Position.X - HoldBar.AbsolutePosition.X) / HoldBar.AbsoluteSize.X, 0, 1)
+        HOVER_AT_TARGET = math.floor((HOLD_MIN + ratio * (HOLD_MAX - HOLD_MIN)) * 10 + 0.5) / 10
+        refreshHoldUI()
+    end
+end)
+UserInputService.InputEnded:Connect(function(input) 
+    if (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) and draggingHold then 
+        draggingHold = false
         saveConfig() 
     end 
 end)
@@ -630,6 +788,29 @@ local function getFlowerZones()
     end
     return zones
 end
+local function getCurrentFields(playerPos)
+    local folder = Workspace:FindFirstChild("FlowerZones")
+    local result = {}
+    if not folder then return result end
+    for _, zone in ipairs(folder:GetChildren()) do 
+        local bounds = getBounds(zone)
+        if bounds then
+            if playerPos.X >= bounds.minX and playerPos.X <= bounds.maxX and playerPos.Z >= bounds.minZ and playerPos.Z <= bounds.maxZ then
+                table.insert(result, {bounds = bounds, name = zone.Name})
+            end
+        end
+    end
+    return result
+end
+local function isPointInAnyField(pos, fields)
+    for _, field in ipairs(fields) do
+        local b = field.bounds
+        if pos.X >= b.minX and pos.X <= b.maxX and pos.Z >= b.minZ and pos.Z <= b.maxZ then
+            return true, field.name
+        end
+    end
+    return false, nil
+end
 local function intersectsFlowerZone(object, zones)
     local objectBounds = getBounds(object)
     if not objectBounds then return false end
@@ -751,6 +932,16 @@ local function scanPass(token)
     if not root then return end
     local zones = getFlowerZones()
     if not isRunning(token) then return end
+    local currentFields = nil
+    local currentFieldName = nil
+    if CurrentFieldOnly then
+        currentFields = getCurrentFields(root.Position)
+        if #currentFields == 0 then
+            Footer.Text = "Not on any field."
+            return
+        end
+        currentFieldName = currentFields[1].name
+    end
     local collectiblesFolder = Workspace:FindFirstChild("Collectibles")
     local objects = {}
     if collectiblesFolder then 
@@ -766,15 +957,24 @@ local function scanPass(token)
             local id = getColorMapID(object)
             if id and SelectedIDs[id] then
                 matchedID = matchedID + 1
-                local itemName = IDToName[id]
-                local ignoreThis = itemName and ItemIgnoreZones[itemName]
-                if ignoreThis or intersectsFlowerZone(object, zones) then
-                    local cf = getTargetCFrame(object)
-                    if cf then 
-                        local targetPos = cf.Position
-                        if isFinite(targetPos.X) and isFinite(targetPos.Y) and isFinite(targetPos.Z) and targetPos.Y > -50 and targetPos.Y < 500 then
-                            local dist = (targetPos - root.Position).Magnitude
-                            if isFinite(dist) and dist < 3000 then
+                local cf = getTargetCFrame(object)
+                if cf then 
+                    local targetPos = cf.Position
+                    if isFinite(targetPos.X) and isFinite(targetPos.Y) and isFinite(targetPos.Z) and targetPos.Y > -50 and targetPos.Y < 500 then
+                        local dist = (targetPos - root.Position).Magnitude
+                        if isFinite(dist) and dist < 3000 then
+                            local shouldCollect = false
+                            if CurrentFieldOnly then
+                                local inField = isPointInAnyField(targetPos, currentFields)
+                                if inField then shouldCollect = true end
+                            else
+                                local itemName = IDToName[id]
+                                local ignoreThis = itemName and ItemIgnoreZones[itemName]
+                                if ignoreThis or intersectsFlowerZone(object, zones) then
+                                    shouldCollect = true
+                                end
+                            end
+                            if shouldCollect then
                                 table.insert(targets, {object = object, cf = cf}) 
                             end
                         end
@@ -784,17 +984,55 @@ local function scanPass(token)
         end
     end
     if #targets == 0 then 
-        Footer.Text = string.format("None | scan %d, id %d", scanned, matchedID) 
+        if CurrentFieldOnly then
+            Footer.Text = string.format("None on %s | scan %d", currentFieldName or "?", scanned)
+        else
+            Footer.Text = string.format("None | scan %d, id %d", scanned, matchedID) 
+        end
         return 
     end
     HomePosition = root.CFrame
-    Footer.Text = "Flying to " .. #targets .. " target(s)..."
+    if CurrentFieldOnly then
+        Footer.Text = string.format("%d on %s...", #targets, currentFieldName or "?")
+    else
+        Footer.Text = "Flying to " .. #targets .. " target(s)..."
+    end
     for index, entry in ipairs(targets) do
         if not isRunning(token) or Player.Character ~= character or not root.Parent then break end
         if not entry.object.Parent then continue end
         Footer.Text = "Flying " .. index .. " / " .. #targets
+        
         flyTo(character, root, entry.cf, FlySpeed, function() return isRunning(token) end)
-        task.wait(HOVER_AT_TARGET)
+        
+        local targetPart = nil
+        for _, child in ipairs(entry.object:GetDescendants()) do
+            if child:IsA("BasePart") then targetPart = child break end
+        end
+        if targetPart and firetouchinterest then
+            pcall(function()
+                firetouchinterest(root, targetPart, 0)
+                task.wait()
+                firetouchinterest(root, targetPart, 1)
+            end)
+        end
+        
+        local holdEndTime = os.clock() + HOVER_AT_TARGET
+        while os.clock() < holdEndTime do
+            if not isRunning(token) or not root.Parent then break end
+            if not entry.object.Parent then break end
+            local currentCF = getTargetCFrame(entry.object)
+            if currentCF then entry.cf = currentCF end
+            pcall(function() root.CFrame = entry.cf end)
+            root.AssemblyLinearVelocity = Vector3.zero
+            root.AssemblyAngularVelocity = Vector3.zero
+            task.wait()
+        end
+        
+        pcall(function()
+            if entry.object and entry.object.Parent then
+                entry.object:Destroy()
+            end
+        end)
     end
     if isRunning(token) and HomePosition then 
         teleportHome() 
@@ -850,11 +1088,13 @@ if loadedData then
         minimized = true
         Content.Visible = false
         TabBar.Visible = false
+        SettingsPanel.Visible = false
         Main.Size = UDim2.fromOffset(280, 40)
         Minimize.Text = "+"
     end
 end
 refreshSpeedUI()
+refreshHoldUI()
 updateStatus()
 refreshItemsList()
 Footer.Text = "Ready."
