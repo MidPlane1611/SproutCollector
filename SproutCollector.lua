@@ -140,7 +140,8 @@ local TriangleBtn = create("TextButton", {
     TextColor3 = Color3.fromRGB(200, 210, 225),
     TextSize = 18,
     Font = Enum.Font.GothamBold,
-    Rotation = 90
+    Rotation = 90,
+    ZIndex = 5
 }, Header)
 local Minimize = create("TextButton", {
     Size = UDim2.fromOffset(24, 24),
@@ -589,7 +590,8 @@ local function buildItemRow(name, index, parent)
     round(Container, 5)
     local MainRow = create("Frame", {
         Size = UDim2.new(1, 0, 0, 26),
-        BackgroundTransparency = 1
+        BackgroundTransparency = 1,
+        ZIndex = 1
     }, Container)
     create("TextLabel", {
         Size = UDim2.new(1, -40, 1, 0),
@@ -600,7 +602,8 @@ local function buildItemRow(name, index, parent)
         TextSize = 11,
         Font = Enum.Font.Gotham,
         TextXAlignment = Enum.TextXAlignment.Left,
-        TextTruncate = Enum.TextTruncate.AtEnd
+        TextTruncate = Enum.TextTruncate.AtEnd,
+        ZIndex = 1
     }, MainRow)
     local ItemTriangle = create("TextButton", {
         Size = UDim2.fromOffset(24, 24),
@@ -610,12 +613,14 @@ local function buildItemRow(name, index, parent)
         TextColor3 = Color3.fromRGB(200, 210, 225),
         TextSize = 14,
         Font = Enum.Font.GothamBold,
-        Rotation = isOpen and 90 or 0
+        Rotation = isOpen and 90 or 0,
+        ZIndex = 5
     }, MainRow)
     local Settings = create("Frame", {
         Size = UDim2.new(1, 0, 0, expandedHeight - baseHeight),
         Position = UDim2.fromOffset(0, baseHeight),
-        BackgroundTransparency = 1
+        BackgroundTransparency = 1,
+        ZIndex = 1
     }, Container)
     local Toggle = create("TextButton", {
         Size = UDim2.new(0.5, -6, 0, 24),
