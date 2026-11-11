@@ -1,11 +1,12 @@
 --==================================================
--- SPR0UT COLLECTOR — fixed flight + diagnostics
+-- SPR0UT COLLECTOR — ITEMS BY NAME (FULL VERSION)
 --==================================================
 
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local UserInputService = game:GetService("UserInputService")
 local HttpService = game:GetService("HttpService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Player = Players.LocalPlayer
 local PlayerGui = Player:WaitForChild("PlayerGui")
@@ -32,11 +33,43 @@ local EXCLUDED_ZONES = {
 }
 
 --==================================================
+-- FALLBACK ITEMS (Твой список)
+--==================================================
+
+local FallbackItems = {
+    ["Basic"] = "1442712345", ["Silver"] = "1442754321", ["Gold"] = "1874512345",
+    ["RoyalJelly"] = "1874619728", ["Mythic"] = "4528999000", ["Diamond"] = "2499123789",
+    ["GiftedDiamond"] = "2499123790", ["GiftedGold"] = "1874512346", ["Star"] = "2007771339",
+    ["GiftedMythic"] = "4528999001", ["GiftedSilver"] = "1442754322", ["Treat"] = "1442700001",
+    ["SunflowerSeed"] = "1442700002", ["Strawberry"] = "1442700003", ["StarTreat"] = "4528456124",
+    ["Pineapple"] = "1442700004", ["Blueberry"] = "1442700005", ["Stinger"] = "1629612345",
+    ["StarJelly"] = "2319943273", ["RedExtract"] = "1874123456", ["BlueExtract"] = "1874123789",
+    ["Oil"] = "2538123456", ["MagicBean"] = "2499123457", ["Glue"] = "1839423100",
+    ["Enzymes"] = "2499123456", ["Glitter"] = "1839423101", ["Coconut"] = "1839423102",
+    ["MarshmallowBee"] = "1839423103", ["CloudVial"] = "1839423104", ["JellyBeans"] = "1839423105",
+    ["Bitterberry"] = "1839423106", ["AtomicTreat"] = "1839423107", ["Neonberry"] = "1839423108",
+    ["PurplePotion"] = "1839423109", ["SuperSmoothie"] = "1839423110", ["SwirledWax"] = "1839423111",
+    ["SoftWax"] = "1839423112", ["HardWax"] = "1839423113", ["DebugWax"] = "1839423114",
+    ["CausticWax"] = "1839423115", ["Snowflake"] = "1839423116", ["Turpentine"] = "1839423117",
+    ["PinkBalloon"] = "8058046728", ["RedBalloon"] = "8083436979", ["WhiteBalloon"] = "8083436980",
+    ["BlackBalloon"] = "8083436981", ["RoboPass"] = "4528127000", ["MoonCharm"] = "177912345",
+    ["Present"] = "4528128000", ["NightBell"] = "4528129000", ["FestiveBean"] = "4528130000",
+    ["MicroConverter"] = "1442784513", ["SmoothDice"] = "4528131000", ["AntPass"] = "1442784514",
+    ["Box-O-Frogs"] = "4528640710", ["FieldDice"] = "4528132000", ["LoadedDice"] = "4528133000",
+    ["HoneyBeePresent"] = "4528134000", ["ComfortingVial"] = "2000457502", ["InvigoratingVial"] = "2000457503",
+    ["SatisfyingVial"] = "2000457504", ["MotivatingVial"] = "2000457505", ["RefreshingVial"] = "2000457506",
+    ["NectarShowerVial"] = "2000457507", ["WhiteDrive"] = "4528124901", ["RedDrive"] = "4528125112",
+    ["BlueDrive"] = "4528125334", ["GlitchedDrive"] = "4528126005", ["BrokenDrive"] = "4528126999"
+}
+
+--==================================================
 -- CLEAN OLD GUI
 --==================================================
 
 local oldGui = PlayerGui:FindFirstChild("SproutCollectorGUI")
-if oldGui then oldGui:Destroy() end
+if oldGui then 
+    oldGui:Destroy() 
+end
 
 local SAVE_FOLDER = "SproutCollector"
 local SAVE_FILE = SAVE_FOLDER .. "/config.json"
@@ -46,6 +79,34 @@ local loadedData
 local refreshFieldsList
 local purgeCollectibles
 local refreshSpeedUI
+local refreshItemsList
+
+--==================================================
+-- DYNAMIC ID DATABASE (ReplicatedStorage)
+--==================================================
+
+local ItemDatabase = {}
+for name, id in pairs(FallbackItems) do 
+    ItemDatabase[name] = id 
+end
+
+local eggTypes = ReplicatedStorage:FindFirstChild("EggTypes")
+if eggTypes then
+    for _, obj in ipairs(eggTypes:GetChildren()) do
+        for _, prop in ipairs({"ColorMap", "Texture", "Image"}) do
+            local ok, val = pcall(function() 
+                return obj[prop] 
+            end)
+            if ok and val and tostring(val) ~= "" then
+                local id = tostring(val):match("%d+")
+                if id then 
+                    ItemDatabase[obj.Name] = id 
+                    break 
+                end
+            end
+        end
+    end
+end
 
 --==================================================
 -- GUI HELPERS
@@ -61,7 +122,9 @@ local function create(class, properties, parent)
 end
 
 local function round(object, radius)
-    create("UICorner", { CornerRadius = UDim.new(0, radius) }, object)
+    create("UICorner", {
+        CornerRadius = UDim.new(0, radius)
+    }, object)
 end
 
 local function stroke(object, color, transparency)
@@ -84,11 +147,12 @@ local ScreenGui = create("ScreenGui", {
 }, PlayerGui)
 
 local Main = create("Frame", {
-    Size = UDim2.fromOffset(280, 400),
-    Position = UDim2.new(0.5, -140, 0.5, -200),
+    Size = UDim2.fromOffset(280, 420),
+    Position = UDim2.new(0.5, -140, 0.5, -210),
     BackgroundColor3 = Color3.fromRGB(20, 23, 31),
     BorderSizePixel = 0
 }, ScreenGui)
+
 round(Main, 10)
 stroke(Main, Color3.fromRGB(65, 75, 95))
 
@@ -101,6 +165,7 @@ local Header = create("Frame", {
     BackgroundColor3 = Color3.fromRGB(28, 33, 44),
     BorderSizePixel = 0
 }, Main)
+
 round(Header, 10)
 
 create("Frame", {
@@ -128,9 +193,9 @@ local Minimize = create("TextButton", {
     Text = "−",
     TextColor3 = Color3.new(1, 1, 1),
     TextSize = 16,
-    Font = Enum.Font.GothamBold,
-    AutoButtonColor = true
+    Font = Enum.Font.GothamBold
 }, Header)
+
 round(Minimize, 6)
 
 --==================================================
@@ -148,12 +213,12 @@ local IDsTab = create("TextButton", {
     Size = UDim2.new(0.5, -3, 1, -6),
     Position = UDim2.fromOffset(3, 3),
     BackgroundColor3 = Color3.fromRGB(65, 115, 210),
-    Text = "IDS",
+    Text = "ITEMS",
     TextColor3 = Color3.new(1, 1, 1),
     TextSize = 11,
-    Font = Enum.Font.GothamBold,
-    AutoButtonColor = false
+    Font = Enum.Font.GothamBold
 }, TabBar)
+
 round(IDsTab, 5)
 
 local FieldsTab = create("TextButton", {
@@ -163,13 +228,13 @@ local FieldsTab = create("TextButton", {
     Text = "FIELDS",
     TextColor3 = Color3.fromRGB(200, 210, 225),
     TextSize = 11,
-    Font = Enum.Font.GothamBold,
-    AutoButtonColor = false
+    Font = Enum.Font.GothamBold
 }, TabBar)
+
 round(FieldsTab, 5)
 
 --==================================================
--- CONTENT
+-- CONTENT & STATUS
 --==================================================
 
 local Content = create("Frame", {
@@ -184,9 +249,9 @@ local Status = create("TextButton", {
     Text = "OFF",
     TextColor3 = Color3.new(1, 1, 1),
     TextSize = 13,
-    Font = Enum.Font.GothamBold,
-    AutoButtonColor = false
+    Font = Enum.Font.GothamBold
 }, Content)
+
 round(Status, 7)
 
 --==================================================
@@ -215,6 +280,7 @@ local SpeedBar = create("Frame", {
     BackgroundColor3 = Color3.fromRGB(40, 48, 62),
     BorderSizePixel = 0
 }, SpeedControl)
+
 round(SpeedBar, 4)
 
 local SpeedFill = create("Frame", {
@@ -222,6 +288,7 @@ local SpeedFill = create("Frame", {
     BackgroundColor3 = Color3.fromRGB(65, 115, 210),
     BorderSizePixel = 0
 }, SpeedBar)
+
 round(SpeedFill, 4)
 
 local SpeedHandle = create("Frame", {
@@ -231,10 +298,11 @@ local SpeedHandle = create("Frame", {
     BorderSizePixel = 0,
     ZIndex = 2
 }, SpeedBar)
+
 round(SpeedHandle, 5)
 
 --==================================================
--- ID PAGE
+-- ID PAGE (ITEMS LIST)
 --==================================================
 
 local IDPage = create("Frame", {
@@ -244,63 +312,31 @@ local IDPage = create("Frame", {
     Visible = true
 }, Content)
 
-local Input = create("TextBox", {
-    Size = UDim2.new(1, -72, 0, 28),
+local SearchBar = create("TextBox", {
+    Size = UDim2.new(1, 0, 0, 28),
     BackgroundColor3 = Color3.fromRGB(32, 38, 50),
     TextColor3 = Color3.fromRGB(240, 240, 240),
     PlaceholderColor3 = Color3.fromRGB(125, 135, 155),
-    PlaceholderText = "Enter ID...",
+    PlaceholderText = "Search item...",
     Text = "",
-    TextSize = 12,
+    TextSize = 11,
     Font = Enum.Font.Gotham,
     ClearTextOnFocus = false
 }, IDPage)
-round(Input, 6)
-stroke(Input, Color3.fromRGB(55, 65, 82))
 
-local Add = create("TextButton", {
-    Size = UDim2.new(0, 64, 0, 28),
-    Position = UDim2.new(1, -64, 0, 0),
-    BackgroundColor3 = Color3.fromRGB(65, 115, 210),
-    Text = "ADD",
-    TextColor3 = Color3.new(1, 1, 1),
-    TextSize = 12,
-    Font = Enum.Font.GothamBold
-}, IDPage)
-round(Add, 6)
-
-create("TextLabel", {
-    Size = UDim2.new(1, 0, 0, 20),
-    Position = UDim2.fromOffset(0, 32),
-    BackgroundTransparency = 1,
-    Text = "SAVED IDS",
-    TextColor3 = Color3.fromRGB(155, 170, 195),
-    TextSize = 10,
-    Font = Enum.Font.GothamBold,
-    TextXAlignment = Enum.TextXAlignment.Left
-}, IDPage)
-
-local Counter = create("TextLabel", {
-    Size = UDim2.fromOffset(60, 20),
-    Position = UDim2.new(1, -60, 0, 32),
-    BackgroundTransparency = 1,
-    Text = "0 IDs",
-    TextColor3 = Color3.fromRGB(110, 170, 255),
-    TextSize = 10,
-    Font = Enum.Font.GothamBold,
-    TextXAlignment = Enum.TextXAlignment.Right
-}, IDPage)
+round(SearchBar, 6)
+stroke(SearchBar, Color3.fromRGB(55, 65, 82))
 
 local List = create("ScrollingFrame", {
-    Size = UDim2.new(1, 0, 0, 160),
-    Position = UDim2.fromOffset(0, 54),
+    Size = UDim2.new(1, 0, 1, -36),
+    Position = UDim2.fromOffset(0, 36),
     BackgroundColor3 = Color3.fromRGB(27, 32, 42),
     BorderSizePixel = 0,
     ScrollBarThickness = 4,
-    ScrollBarImageColor3 = Color3.fromRGB(100, 120, 155),
     CanvasSize = UDim2.new(0, 0, 0, 0),
     AutomaticCanvasSize = Enum.AutomaticSize.Y
 }, IDPage)
+
 round(List, 7)
 
 create("UIListLayout", {
@@ -355,10 +391,10 @@ local FieldsList = create("ScrollingFrame", {
     BackgroundColor3 = Color3.fromRGB(27, 32, 42),
     BorderSizePixel = 0,
     ScrollBarThickness = 4,
-    ScrollBarImageColor3 = Color3.fromRGB(100, 120, 155),
     CanvasSize = UDim2.new(0, 0, 0, 0),
     AutomaticCanvasSize = Enum.AutomaticSize.Y
 }, FieldsPage)
+
 round(FieldsList, 7)
 
 create("UIListLayout", {
@@ -382,6 +418,7 @@ local Purge = create("TextButton", {
     TextSize = 10,
     Font = Enum.Font.GothamBold
 }, FieldsPage)
+
 round(Purge, 5)
 
 local FieldsFooter = create("TextLabel", {
@@ -450,7 +487,7 @@ Minimize.MouseButton1Click:Connect(function()
         Main.Size = UDim2.fromOffset(280, 40)
         Minimize.Text = "+"
     else
-        Main.Size = UDim2.fromOffset(280, 400)
+        Main.Size = UDim2.fromOffset(280, 420)
         Minimize.Text = "−"
     end
     if saveConfig then saveConfig() end
@@ -460,15 +497,9 @@ end)
 -- STATE
 --==================================================
 
-local SavedIDs = {}
-local IDOrder = {}
+local SelectedNames = {}
+local SelectedIDs = {}
 local fieldSelection = {}
-
-local function normalizeID(id)
-    id = tostring(id):gsub("^0+", "")
-    if id == "" then return "0" end
-    return id
-end
 
 local function isFieldEnabled(name)
     local explicit = fieldSelection[name]
@@ -495,12 +526,11 @@ if type(isfile) == "function" and type(readfile) == "function" then
 end
 
 if loadedData then
-    if type(loadedData.ids) == "table" then
-        for _, rawID in ipairs(loadedData.ids) do
-            local id = normalizeID(rawID)
-            if id ~= "0" and not SavedIDs[id] then
-                SavedIDs[id] = true
-                table.insert(IDOrder, id)
+    if type(loadedData.items) == "table" then
+        for _, name in ipairs(loadedData.items) do
+            if ItemDatabase[name] then
+                SelectedNames[name] = true
+                SelectedIDs[ItemDatabase[name]] = true
             end
         end
     end
@@ -529,8 +559,14 @@ saveConfig = function()
             end
         end)
     end
+    
+    local itemsList = {}
+    for name, _ in pairs(SelectedNames) do
+        table.insert(itemsList, name)
+    end
+
     local data = {
-        ids = IDOrder,
+        items = itemsList,
         fields = fieldSelection,
         speed = FlySpeed,
         guiPosition = {
@@ -562,36 +598,21 @@ end
 
 refreshSpeedUI()
 
-local function setSpeed(value, doSave)
-    value = math.clamp(math.floor(value + 0.5), SPEED_MIN, SPEED_MAX)
-    FlySpeed = value
-    refreshSpeedUI()
-    if doSave and saveConfig then saveConfig() end
-end
-
 local draggingSpeed = false
-
-local function updateSpeedFromPosition(pos)
-    local barAbs = SpeedBar.AbsolutePosition
-    local barSize = SpeedBar.AbsoluteSize
-    if barSize.X <= 0 then return end
-    local ratio = math.clamp((pos.X - barAbs.X) / barSize.X, 0, 1)
-    local value = SPEED_MIN + ratio * (SPEED_MAX - SPEED_MIN)
-    setSpeed(value, false)
-end
 
 SpeedBar.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1
         or input.UserInputType == Enum.UserInputType.Touch then
         draggingSpeed = true
-        updateSpeedFromPosition(input.Position)
     end
 end)
 
 UserInputService.InputChanged:Connect(function(input)
     if draggingSpeed and (input.UserInputType == Enum.UserInputType.MouseMovement
         or input.UserInputType == Enum.UserInputType.Touch) then
-        updateSpeedFromPosition(input.Position)
+        local ratio = math.clamp((input.Position.X - SpeedBar.AbsolutePosition.X) / SpeedBar.AbsoluteSize.X, 0, 1)
+        FlySpeed = math.floor(SPEED_MIN + ratio * (SPEED_MAX - SPEED_MIN) + 0.5)
+        refreshSpeedUI()
     end
 end)
 
@@ -606,67 +627,91 @@ UserInputService.InputEnded:Connect(function(input)
 end)
 
 --==================================================
--- ID LIST
+-- ITEMS LIST RENDERER
 --==================================================
 
-local function updateCounter()
-    Counter.Text = tostring(#IDOrder) .. " IDs"
-end
-
-local function refreshList()
+refreshItemsList = function()
     for _, child in ipairs(List:GetChildren()) do
-        if child:IsA("Frame") then child:Destroy() end
+        if child:IsA("Frame") then
+            child:Destroy()
+        end
     end
-    for index, id in ipairs(IDOrder) do
+    
+    local searchTxt = SearchBar.Text:lower()
+    local sortedNames = {}
+    
+    for name, _ in pairs(ItemDatabase) do 
+        if searchTxt == "" or name:lower():find(searchTxt) then
+            table.insert(sortedNames, name) 
+        end
+    end
+    table.sort(sortedNames)
+
+    for i, name in ipairs(sortedNames) do
+        local id = ItemDatabase[name]
+        local isSelected = SelectedNames[name] == true
+        
         local Row = create("Frame", {
             Size = UDim2.new(1, -2, 0, 26),
             BackgroundColor3 = Color3.fromRGB(37, 44, 57),
             BorderSizePixel = 0,
-            LayoutOrder = index
+            LayoutOrder = i
         }, List)
         round(Row, 5)
+        
         create("TextLabel", {
-            Size = UDim2.new(1, -40, 1, 0),
+            Size = UDim2.new(1, -58, 1, 0),
             Position = UDim2.fromOffset(8, 0),
             BackgroundTransparency = 1,
-            Text = id,
+            Text = name,
             TextColor3 = Color3.fromRGB(225, 232, 245),
             TextSize = 11,
             Font = Enum.Font.Gotham,
-            TextXAlignment = Enum.TextXAlignment.Left
+            TextXAlignment = Enum.TextXAlignment.Left,
+            TextTruncate = Enum.TextTruncate.AtEnd
         }, Row)
-        local Remove = create("TextButton", {
-            Size = UDim2.fromOffset(24, 20),
-            Position = UDim2.new(1, -28, 0.5, -10),
-            BackgroundColor3 = Color3.fromRGB(145, 48, 55),
-            Text = "X",
+        
+        local Toggle = create("TextButton", {
+            Size = UDim2.fromOffset(48, 20),
+            Position = UDim2.new(1, -52, 0.5, -10),
+            BackgroundColor3 = isSelected and Color3.fromRGB(35, 145, 85) or Color3.fromRGB(120, 45, 50),
+            Text = isSelected and "ON" or "OFF",
             TextColor3 = Color3.new(1, 1, 1),
             TextSize = 10,
             Font = Enum.Font.GothamBold
         }, Row)
-        round(Remove, 4)
-        Remove.MouseButton1Click:Connect(function()
-            SavedIDs[id] = nil
-            for i, savedID in ipairs(IDOrder) do
-                if savedID == id then
-                    table.remove(IDOrder, i)
-                    break
-                end
+        round(Toggle, 4)
+        
+        Toggle.MouseButton1Click:Connect(function()
+            if SelectedNames[name] then 
+                SelectedNames[name] = nil
+                SelectedIDs[id] = nil
+                Toggle.BackgroundColor3 = Color3.fromRGB(120, 45, 50)
+                Toggle.Text = "OFF"
+            else 
+                SelectedNames[name] = true
+                SelectedIDs[id] = true
+                Toggle.BackgroundColor3 = Color3.fromRGB(35, 145, 85)
+                Toggle.Text = "ON" 
             end
-            refreshList()
             saveConfig()
         end)
     end
-    updateCounter()
 end
 
+SearchBar:GetPropertyChangedSignal("Text"):Connect(function()
+    refreshItemsList()
+end)
+
 --==================================================
--- FIELDS LIST
+-- FIELDS LIST RENDERER
 --==================================================
 
 refreshFieldsList = function()
     for _, child in ipairs(FieldsList:GetChildren()) do
-        if child:IsA("Frame") then child:Destroy() end
+        if child:IsA("Frame") then
+            child:Destroy()
+        end
     end
 
     local folder = Workspace:FindFirstChild("FlowerZones")
@@ -680,11 +725,6 @@ refreshFieldsList = function()
         table.insert(names, zone.Name)
     end
     table.sort(names)
-
-    if #names == 0 then
-        FieldsFooter.Text = "FlowerZones is empty."
-        return
-    end
 
     for index, name in ipairs(names) do
         local enabled = isFieldEnabled(name)
@@ -704,16 +744,13 @@ refreshFieldsList = function()
             TextColor3 = Color3.fromRGB(225, 232, 245),
             TextSize = 11,
             Font = Enum.Font.Gotham,
-            TextXAlignment = Enum.TextXAlignment.Left,
-            TextTruncate = Enum.TextTruncate.AtEnd
+            TextXAlignment = Enum.TextXAlignment.Left
         }, Row)
 
         local Toggle = create("TextButton", {
             Size = UDim2.fromOffset(48, 20),
             Position = UDim2.new(1, -52, 0.5, -10),
-            BackgroundColor3 = enabled
-                and Color3.fromRGB(35, 145, 85)
-                or Color3.fromRGB(120, 45, 50),
+            BackgroundColor3 = enabled and Color3.fromRGB(35, 145, 85) or Color3.fromRGB(120, 45, 50),
             Text = enabled and "ON" or "OFF",
             TextColor3 = Color3.new(1, 1, 1),
             TextSize = 10,
@@ -724,23 +761,15 @@ refreshFieldsList = function()
         Toggle.MouseButton1Click:Connect(function()
             local nowEnabled = not isFieldEnabled(name)
             fieldSelection[name] = nowEnabled
-            Toggle.BackgroundColor3 = nowEnabled
-                and Color3.fromRGB(35, 145, 85)
-                or Color3.fromRGB(120, 45, 50)
+            Toggle.BackgroundColor3 = nowEnabled and Color3.fromRGB(35, 145, 85) or Color3.fromRGB(120, 45, 50)
             Toggle.Text = nowEnabled and "ON" or "OFF"
             saveConfig()
         end)
     end
-
-    local enabledCount = 0
-    for _, name in ipairs(names) do
-        if isFieldEnabled(name) then enabledCount = enabledCount + 1 end
-    end
-    FieldsFooter.Text = enabledCount .. " / " .. #names .. " enabled."
 end
 
 --==================================================
--- TABS
+-- TABS SWITCHING
 --==================================================
 
 IDsTab.MouseButton1Click:Connect(function()
@@ -763,36 +792,7 @@ FieldsTab.MouseButton1Click:Connect(function()
 end)
 
 --==================================================
--- INPUT
---==================================================
-
-Input:GetPropertyChangedSignal("Text"):Connect(function()
-    local filtered = Input.Text:gsub("%D", "")
-    if Input.Text ~= filtered then
-        Input.Text = filtered
-    end
-end)
-
-Add.MouseButton1Click:Connect(function()
-    local id = normalizeID(Input.Text)
-    if id == "" or id == "0" then
-        Footer.Text = "Enter a valid ID."
-        return
-    end
-    if SavedIDs[id] then
-        Footer.Text = "This ID already exists."
-        return
-    end
-    SavedIDs[id] = true
-    table.insert(IDOrder, id)
-    Input.Text = ""
-    refreshList()
-    saveConfig()
-    Footer.Text = "ID added: " .. id
-end)
-
---==================================================
--- BOUNDS
+-- BOUNDS & ZONES
 --==================================================
 
 local function getBounds(object)
@@ -811,27 +811,11 @@ local function getBounds(object)
         return nil
     end
 
-    local xExtent =
-        math.abs(cf.RightVector.X) * size.X / 2 +
-        math.abs(cf.UpVector.X) * size.Y / 2 +
-        math.abs(cf.LookVector.X) * size.Z / 2
+    local xExtent = math.abs(cf.RightVector.X)*size.X/2 + math.abs(cf.UpVector.X)*size.Y/2 + math.abs(cf.LookVector.X)*size.Z/2
+    local zExtent = math.abs(cf.RightVector.Z)*size.X/2 + math.abs(cf.UpVector.Z)*size.Y/2 + math.abs(cf.LookVector.Z)*size.Z/2
 
-    local zExtent =
-        math.abs(cf.RightVector.Z) * size.X / 2 +
-        math.abs(cf.UpVector.Z) * size.Y / 2 +
-        math.abs(cf.LookVector.Z) * size.Z / 2
-
-    return {
-        minX = cf.Position.X - xExtent,
-        maxX = cf.Position.X + xExtent,
-        minZ = cf.Position.Z - zExtent,
-        maxZ = cf.Position.Z + zExtent
-    }
+    return { minX = cf.Position.X - xExtent, maxX = cf.Position.X + xExtent, minZ = cf.Position.Z - zExtent, maxZ = cf.Position.Z + zExtent }
 end
-
---==================================================
--- FLOWER ZONES
---==================================================
 
 local function getFlowerZones()
     local folder = Workspace:FindFirstChild("FlowerZones")
@@ -840,31 +824,19 @@ local function getFlowerZones()
     for _, zone in ipairs(folder:GetChildren()) do
         if isFieldEnabled(zone.Name) then
             local bounds = getBounds(zone)
-            if bounds then
-                table.insert(zones, bounds)
-            end
+            if bounds then table.insert(zones, bounds) end
         end
     end
     return zones
 end
 
---==================================================
--- INTERSECTION
---==================================================
-
 local function intersectsFlowerZone(object, zones)
     local objectBounds = getBounds(object)
     if not objectBounds then return false end
     for _, zone in ipairs(zones) do
-        local overlapX =
-            objectBounds.minX <= zone.maxX and
-            objectBounds.maxX >= zone.minX
-        local overlapZ =
-            objectBounds.minZ <= zone.maxZ and
-            objectBounds.maxZ >= zone.minZ
-        if overlapX and overlapZ then
-            return true
-        end
+        local overlapX = objectBounds.minX <= zone.maxX and objectBounds.maxX >= zone.minX
+        local overlapZ = objectBounds.minZ <= zone.maxZ and objectBounds.maxZ >= zone.minZ
+        if overlapX and overlapZ then return true end
     end
     return false
 end
@@ -873,71 +845,41 @@ end
 -- COLOR MAP ID
 --==================================================
 
-local function extractID(value)
-    if value == nil then return nil end
-    if type(value) ~= "string" then
-        local ok, str = pcall(tostring, value)
-        if not ok then return nil end
-        value = str
-    end
-    local id = value:match("%d+")
-    if id then
-        return normalizeID(id)
-    end
-    return nil
-end
-
 local function getColorMapID(object)
     local backDecal = object:FindFirstChild("BackDecal", true)
     if not backDecal then return nil end
 
-    local properties = { "ColorMap", "Texture", "SoundId", "MeshId", "Image" }
-
-    for _, prop in ipairs(properties) do
+    for _, prop in ipairs({"ColorMap", "Texture", "SoundId", "MeshId", "Image"}) do
         local ok, value = pcall(function()
             return backDecal[prop]
         end)
         if ok and value ~= nil then
-            local id = extractID(value)
-            if id then
-                return id
-            end
+            local id = tostring(value):match("%d+")
+            if id then return id end
         end
     end
-
     return nil
 end
 
 --==================================================
--- TARGET CFrame
+-- FLY LOGIC
 --==================================================
 
 local function getTargetCFrame(object)
-    if object:IsA("BasePart") then
-        return object.CFrame
-    end
+    if object:IsA("BasePart") then return object.CFrame end
     if object:IsA("Model") then
-        if object.PrimaryPart then
-            return object.PrimaryPart.CFrame
-        end
+        if object.PrimaryPart then return object.PrimaryPart.CFrame end
         local ok, pivot = pcall(function() return object:GetPivot() end)
         if ok and pivot then return pivot end
     end
     for _, child in ipairs(object:GetDescendants()) do
-        if child:IsA("BasePart") then
-            return child.CFrame
-        end
+        if child:IsA("BasePart") then return child.CFrame end
     end
     return nil
 end
 
---==================================================
--- FLY (direct CFrame, no PivotTo)
---==================================================
-
 local function flyTo(character, root, targetCF, speed, cancelCheck)
     if not root or not root.Parent then return false end
-
     local startPos = root.CFrame.Position
     local endPos = targetCF.Position
     local distance = (endPos - startPos).Magnitude
@@ -951,7 +893,6 @@ local function flyTo(character, root, targetCF, speed, cancelCheck)
     local duration = distance / speed
     local startTime = os.clock()
 
-    -- Disable collisions
     local collisionState = {}
     for _, part in ipairs(character:GetDescendants()) do
         if part:IsA("BasePart") then
@@ -961,7 +902,6 @@ local function flyTo(character, root, targetCF, speed, cancelCheck)
     end
 
     local success = true
-
     while true do
         if not root.Parent then success = false break end
         if Player.Character ~= character then success = false break end
@@ -970,8 +910,8 @@ local function flyTo(character, root, targetCF, speed, cancelCheck)
         local elapsed = os.clock() - startTime
         local alpha = math.min(elapsed / duration, 1)
         local pos = startPos:Lerp(endPos, alpha)
-
         local cf = CFrame.new(pos, endPos)
+
         pcall(function() root.CFrame = cf end)
         root.AssemblyLinearVelocity = Vector3.zero
         root.AssemblyAngularVelocity = Vector3.zero
@@ -987,9 +927,7 @@ local function flyTo(character, root, targetCF, speed, cancelCheck)
     end
 
     for part, val in pairs(collisionState) do
-        if part.Parent then
-            part.CanCollide = val
-        end
+        if part.Parent then part.CanCollide = val end
     end
 
     return success
@@ -1044,7 +982,6 @@ end
 local function scanPass(token)
     local character = Player.Character
     if not character then return end
-
     local root = character:FindFirstChild("HumanoidRootPart")
     if not root then return end
 
@@ -1059,9 +996,7 @@ local function scanPass(token)
 
     local targets = {}
     local scanned = 0
-    local hadDecal = 0
     local matchedID = 0
-    local sampleID = nil
 
     for _, object in ipairs(objects) do
         if not isRunning(token) then break end
@@ -1069,32 +1004,18 @@ local function scanPass(token)
 
         if object.Name == "C" then
             local id = getColorMapID(object)
-            if id then
-                hadDecal = hadDecal + 1
-                if not sampleID then sampleID = id end
-                if SavedIDs[id] then
-                    matchedID = matchedID + 1
-                    if intersectsFlowerZone(object, zones) then
-                        local cf = getTargetCFrame(object)
-                        if cf then
-                            table.insert(targets, {object = object, cf = cf})
-                        end
-                    end
+            if id and SelectedIDs[id] then
+                matchedID = matchedID + 1
+                if intersectsFlowerZone(object, zones) then
+                    local cf = getTargetCFrame(object)
+                    if cf then table.insert(targets, {object = object, cf = cf}) end
                 end
             end
         end
     end
 
-    print(string.format(
-        "[Sprout] scan=%d decal=%d id=%d zones=%d targets=%d",
-        scanned, hadDecal, matchedID, #zones, #targets
-    ))
-
     if #targets == 0 then
-        Footer.Text = string.format(
-            "None | scan %d, decal %d, id %d, zones %d | ex: %s",
-            scanned, hadDecal, matchedID, #zones, sampleID or "?"
-        )
+        Footer.Text = string.format("None | scan %d, id %d", scanned, matchedID)
         return
     end
 
@@ -1118,7 +1039,7 @@ local function scanPass(token)
     end
 
     if isRunning(token) then
-        Footer.Text = "Returned home. Waiting..."
+        Footer.Text = "Returned home."
     end
 end
 
@@ -1128,10 +1049,10 @@ end
 
 local function updateStatus()
     if Enabled then
-        Status.Text = "●  ACTIVE"
+        Status.Text = "● ACTIVE"
         Status.BackgroundColor3 = Color3.fromRGB(35, 145, 85)
     else
-        Status.Text = "●  OFF"
+        Status.Text = "● OFF"
         Status.BackgroundColor3 = Color3.fromRGB(150, 45, 50)
     end
 end
@@ -1144,12 +1065,11 @@ Status.MouseButton1Click:Connect(function()
     if Enabled then
         local character = Player.Character
         local root = character and character:FindFirstChild("HumanoidRootPart")
-        if root then
-            HomePosition = root.CFrame
-        end
+        if root then HomePosition = root.CFrame end
 
         local token = RunToken
         Footer.Text = "Starting..."
+        
         task.spawn(function()
             while isRunning(token) do
                 local started = os.clock()
@@ -1172,16 +1092,13 @@ Status.MouseButton1Click:Connect(function()
 end)
 
 --==================================================
--- RESTORE GUI STATE
+-- INITIALIZE
 --==================================================
 
 if loadedData then
     if type(loadedData.guiPosition) == "table" then
         local p = loadedData.guiPosition
-        if type(p.xScale) == "number"
-            and type(p.xOffset) == "number"
-            and type(p.yScale) == "number"
-            and type(p.yOffset) == "number" then
+        if type(p.xScale) == "number" and type(p.xOffset) == "number" and type(p.yScale) == "number" and type(p.yOffset) == "number" then
             Main.Position = UDim2.new(p.xScale, p.xOffset, p.yScale, p.yOffset)
         end
     end
@@ -1195,22 +1112,12 @@ if loadedData then
 end
 
 refreshSpeedUI()
-
---==================================================
--- INITIALIZE
---==================================================
+updateStatus()
+refreshItemsList()
 
 if PURGE_ON_START then
     purgeCollectibles()
 end
 
-updateStatus()
-refreshList()
-
-if #IDOrder > 0 then
-    Footer.Text = "Loaded " .. #IDOrder .. " ID(s)."
-else
-    Footer.Text = "Ready."
-end
-
-print("[Sprout Collector] loaded.")
+Footer.Text = "Ready. Search and select items."
+print("[Sprout Collector] Loaded. No abilities.")
