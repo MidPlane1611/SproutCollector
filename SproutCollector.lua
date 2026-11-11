@@ -53,6 +53,9 @@ for name, id in pairs(FallbackItems) do
     ItemDatabase[name] = id
     IDToName[id] = name
 end
+local function isFinite(val)
+    return val == val and val ~= math.huge and val ~= -math.huge
+end
 purgeCollectibles = function()
     local folder = Workspace:FindFirstChild("Collectibles")
     if not folder then return 0 end
@@ -656,6 +659,18 @@ local function getTargetCFrame(object)
     if object:IsA("BasePart") then 
         return object.CFrame 
     end
+    local visualPart = nil
+    for _, child in ipairs(object:GetDescendants()) do
+        if child:IsA("BasePart") then
+            if child:FindFirstChild("BackDecal") or child:FindFirstChild("FrontDecal") then
+                visualPart = child
+                break
+            end
+        end
+    end
+    if visualPart then 
+        return visualPart.CFrame 
+    end
     if object:IsA("Model") then 
         if object.PrimaryPart then 
             return object.PrimaryPart.CFrame 
@@ -672,9 +687,9 @@ local function getTargetCFrame(object)
 end
 local function flyTo(character, root, targetCF, speed, cancelCheck)
     if not root or not root.Parent then return false end
-    local startPos = root.CFrame.Position
-    local endPos = targetCF.Position
-    local distance = (endPos - startPos).Magnitude
+    local startCF = root.CFrame
+    local distance = (targetCF.Position - startCF.Position).Magnitude
+    if not isFinite(distance) then return false end
     if distance < 1 then 
         pcall(function() root.CFrame = targetCF end)
         return true 
@@ -696,19 +711,8 @@ local function flyTo(character, root, targetCF, speed, cancelCheck)
         if cancelCheck and not cancelCheck() then success = false break end
         local elapsed = os.clock() - startTime
         local alpha = math.min(elapsed / duration, 1)
-        local pos = startPos:Lerp(endPos, alpha)
-        
-        -- ЗАЩИТА ОТ ВЫЛЕТА ЗА КАРТУ
-        if pos.X ~= pos.X or pos.Y ~= pos.Y or pos.Z ~= pos.Z then
-            success = false
-            break
-        end
-        if pos.Y < -500 then
-            success = false
-            break
-        end
-        
-        pcall(function() root.CFrame = CFrame.new(pos, endPos) end)
+        local currentCF = startCF:Lerp(targetCF, alpha)
+        pcall(function() root.CFrame = currentCF end)
         root.AssemblyLinearVelocity = Vector3.zero
         root.AssemblyAngularVelocity = Vector3.zero
         if alpha >= 1 then break end
@@ -733,9 +737,12 @@ local function teleportHome()
     if not character then return end
     local root = character:FindFirstChild("HumanoidRootPart")
     if not root or not root.Parent then return end
-    pcall(function() root.CFrame = HomePosition end)
-    root.AssemblyLinearVelocity = Vector3.zero
-    root.AssemblyAngularVelocity = Vector3.zero
+    local p = HomePosition.Position
+    if isFinite(p.X) and isFinite(p.Y) and isFinite(p.Z) and p.Y > -500 then
+        pcall(function() root.CFrame = HomePosition end)
+        root.AssemblyLinearVelocity = Vector3.zero
+        root.AssemblyAngularVelocity = Vector3.zero
+    end
 end
 local function scanPass(token)
     local character = Player.Character
@@ -765,10 +772,9 @@ local function scanPass(token)
                     local cf = getTargetCFrame(object)
                     if cf then 
                         local targetPos = cf.Position
-                        -- ЗАЩИТА ОТ БИТЫХ КООРДИНАТ И СЛИШКОМ ДАЛЕКИХ ТОКЕНОВ
-                        if targetPos.X == targetPos.X and targetPos.Y == targetPos.Y and targetPos.Z == targetPos.Z then
+                        if isFinite(targetPos.X) and isFinite(targetPos.Y) and isFinite(targetPos.Z) and targetPos.Y > -50 and targetPos.Y < 500 then
                             local dist = (targetPos - root.Position).Magnitude
-                            if dist < 3000 then
+                            if isFinite(dist) and dist < 3000 then
                                 table.insert(targets, {object = object, cf = cf}) 
                             end
                         end
